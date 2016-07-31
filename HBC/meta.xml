@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<app version="1.1">
+	<name>Xyzzy</name>
+	<version>1.2.3</version>
+        <release_date>20160731013000</release_date>
+	<coder>Bushing, DarkMatterCore</coder>
+	<short_description>Extract your Wii console keys!</short_description>
+	<long_description>Xyzzy is a homebrew application that allows the extraction of the OTP and SEEPROM Encryption Keys.
+
+This modified version uses full hardware access through the HW_AHBPROT flag to read the both OTP and SEEPROM chips, copy their data to a memory buffer and retrieve the console keys. Thus, it no longer installs a modified IOS11 nor uses PatchMii.
+
+Other changes include:
+
+* Compatibility with USB devices.
+* Support for GCN controllers and newer WiiMotes.</long_description>
+	<ahb_access/>
+</app>
