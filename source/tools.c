@@ -18,6 +18,20 @@ extern DISC_INTERFACE __io_usbstorage;
 static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
 
+bool IsWiiU(void)
+{
+	s32 ret;
+	u32 x;
+	
+	ret = ES_GetTitleContentsCount(TITLEID_200, &x);
+	
+	if (ret < 0) return false; // title was never installed
+	
+	if (x <= 0) return false; // title was installed but deleted via Channel Management
+	
+	return true;
+}
+
 void Reboot()
 {
 	if (*(u32*)0x80001800) exit(0);
@@ -99,7 +113,7 @@ void printheadline()
 	printf("Xyzzy v%s (unofficial).", VERSION);
 	
 	char buf[64];
-	sprintf(buf, "IOS%u (v%u)", IOS_GetVersion(), IOS_GetRevision());
+	sprintf(buf, "IOS%ld (v%ld)", IOS_GetVersion(), IOS_GetRevision());
 	printf("\x1B[%d;%dH", 0, cols-strlen(buf)-1);
 	printf(buf);
 	
@@ -120,7 +134,7 @@ void set_highlight(bool highlight)
 
 void Con_ClearLine()
 {
-	s32 cols, rows;
+	int cols, rows;
 	u32 cnt;
 
 	printf("\r");

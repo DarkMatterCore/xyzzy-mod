@@ -11,7 +11,6 @@ Copyright (C) 2008, 2009    John Kelley <wiidev@kelley.ca>
 # see http://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
 */
 #include <ogc/machine/processor.h>
-#include <ogcsys.h>
 #include <unistd.h>
 
 #define HW_REG_BASE 0xd800000
