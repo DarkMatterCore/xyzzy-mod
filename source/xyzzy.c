@@ -50,7 +50,7 @@ static bool OTP_ReadData(void)
     
     u8 ret = otp_read(otp_ptr, 0, OTP_SIZE);
     
-    return (ret == OTP_SIZE && *((u32*)(otp_ptr + (OTP_SIZE - 4))) != 0);
+    return (ret == OTP_SIZE && otp_ptr[0] != 0);
 }
 
 static void SEEPROM_ClearData(void)
