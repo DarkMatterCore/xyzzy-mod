@@ -1,22 +1,32 @@
+#ifndef __TOOLS_H__
+#define __TOOLS_H__
+
 #include <sys/unistd.h>
 #include <wiiuse/wpad.h>
 
-#define VERSION "1.2.3"
-//#define IsWiiU() ((*(vu32*)(0xCD8005A0) >> 16 ) == 0xCAFE)
-#define resetscreen() printf("\x1b[2J")
+#define VERSION             "1.2.5"
 
-#define TITLEID_200			0x0000000100000200ll // IOS512
+//#define IsWiiU()          (((*(vu32*)0xCD8005A0) >> 16) == 0xCAFE)
+#define ResetScreen()       printf("\x1b[2J")
 
-int device;
-bool vWii;
+#define AHBPROT_DISABLED    ((*(vu32*)0xCD800064) == 0xFFFFFFFF)
 
 bool IsWiiU(void);
-void Reboot();
-void waitforbuttonpress(u32 *out, u32 *outGC);
-void Init_Console();
-void printheadline();
-void Close_SD();
-void Close_USB();
-bool select_device();
-void hexdump(FILE *fp, void *d, int len);
-void hex_key_dump(FILE *fp, void *d, int len);
+
+void Reboot(void);
+
+void InitPads(void);
+void WaitForButtonPress(u32 *out, u32 *outGC);
+
+void InitConsole();
+void PrintHeadline();
+
+void UnmountStorageDevice(void);
+int SelectStorageDevice(void);
+char *StorageDeviceString(void);
+char *StorageDeviceMountName(void);
+
+void HexDump(FILE *fp, void *d, size_t len);
+void HexKeyDump(FILE *fp, void *d, size_t len);
+
+#endif /* __TOOLS_H__ */

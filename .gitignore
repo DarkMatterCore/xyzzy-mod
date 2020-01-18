@@ -1,0 +1,8 @@
+build
+/*.elf
+/*.dol
+
+# Clion files
+.idea
+cmake-build-debug
+CMakeLists.txt
