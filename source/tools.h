@@ -4,7 +4,7 @@
 #include <sys/unistd.h>
 #include <wiiuse/wpad.h>
 
-#define VERSION             "1.2.6"
+#define VERSION             "1.2.7"
 
 //#define IsWiiU()          (((*(vu32*)0xCD8005A0) >> 16) == 0xCAFE)
 #define ResetScreen()       printf("\x1b[2J")

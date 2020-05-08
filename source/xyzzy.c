@@ -22,6 +22,14 @@
 
 #define DEVCERT_SIZE    0x200
 
+typedef struct {
+    char human_info[0x100];
+    otp_t otp_data;
+    u8 otp_padding[0x80];
+    seeprom_t seeprom_data;
+    u8 seeprom_padding[0x100];
+} bootmii_keys_bin_t;
+
 static u8 otp_ptr[OTP_SIZE];
 static u8 seeprom_ptr[SEEPROM_SIZE];
 
@@ -133,6 +141,39 @@ static bool FillSEEPROMStruct(seeprom_t **out)
     return true;
 }
 
+static bool FillBootMiiKeysStruct(otp_t *otp_data, seeprom_t *seeprom_data, bootmii_keys_bin_t **out)
+{
+    if (!otp_data || !seeprom_data || !out)
+    {
+        printf("\n\nFatal error: invalid OTP/SEEPROM/BootMiiKeys struct pointer(s).");
+        return false;
+    }
+    
+    bootmii_keys_bin_t *bootmii_keys = memalign(32, sizeof(bootmii_keys_bin_t));
+    if (!bootmii_keys)
+    {
+        printf("\n\nFatal error: unable to allocate memory for BootMiiKeys struct.");
+        return false;
+    }
+    
+    /* Fill structure with zeroes */
+    memset(bootmii_keys, 0, sizeof(bootmii_keys_bin_t));
+    
+    /* Fill human info text block */
+    sprintf(bootmii_keys->human_info, "BackupMii v1, ConsoleID: %02x%02x%02x%02x\n", otp_data->ng_id[0], otp_data->ng_id[1], otp_data->ng_id[2], otp_data->ng_id[3]);
+    
+    /* Fill OTP block */
+    memcpy(&(bootmii_keys->otp_data), otp_data, sizeof(otp_t));
+    
+    /* Fill SEEPROM block */
+    memcpy(&(bootmii_keys->seeprom_data), seeprom_data, sizeof(seeprom_t));
+    
+    /* Save BootMiiKeys struct pointer */
+    *out = bootmii_keys;
+    
+    return true;
+}
+
 static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, FILE *fp)
 {
     if (!otp_data || !fp) return;
@@ -197,15 +238,16 @@ int XyzzyGetKeys(bool vWii)
 {
     int ret = 0;
     FILE *fp = NULL;
+    char path[128] = {0};
     
     otp_t *otp_data = NULL;
     seeprom_t *seeprom_data = NULL;
+    bootmii_keys_bin_t *bootmii_keys = NULL;
     
     ret = SelectStorageDevice();
     
     if (ret >= 0)
     {
-        char path[16] = {0};
         sprintf(path, "%s:/keys.txt", StorageDeviceMountName());
         
         fp = fopen(path, "w");
@@ -242,6 +284,13 @@ int XyzzyGetKeys(bool vWii)
             sleep(2);
             goto out;
         }
+        
+        if (!FillBootMiiKeysStruct(otp_data, seeprom_data, &bootmii_keys))
+        {
+            ret = -1;
+            sleep(2);
+            goto out;
+        }
     }
     
     PrintAllKeys(otp_data, seeprom_data, stdout);
@@ -269,9 +318,58 @@ int XyzzyGetKeys(bool vWii)
         } else {
             printf("\n\nError allocating memory for device certificate buffer.\n\n");
         }
+        
+        fclose(fp);
+        fp = NULL;
+    }
+    
+    /* Save raw OTP data */
+    sprintf(path, "%s:/otp.bin", StorageDeviceMountName());
+    fp = fopen(path, "wb");
+    if (fp)
+    {
+        fwrite(otp_data, 1, sizeof(otp_t), fp);
+        fclose(fp);
+        fp = NULL;
+    } else {
+        printf("\n\t- Unable to open otp.bin for writing.");
+        printf("\n\t- Sorry, not writing raw OTP data to %s.\n", StorageDeviceString());
+        sleep(2);
+    }
+    
+    /* Save raw SEEPROM data */
+    if (!vWii)
+    {
+        sprintf(path, "%s:/seeprom.bin", StorageDeviceMountName());
+        fp = fopen(path, "wb");
+        if (fp)
+        {
+            fwrite(seeprom_data, 1, sizeof(seeprom_t), fp);
+            fclose(fp);
+            fp = NULL;
+        } else {
+            printf("\n\t- Unable to open seeprom.bin for writing.");
+            printf("\n\t- Sorry, not writing raw SEEPROM data to %s.\n", StorageDeviceString());
+            sleep(2);
+        }
+        
+        sprintf(path, "%s:/bootmii_keys.bin", StorageDeviceMountName());
+        fp = fopen(path, "wb");
+        if (fp)
+        {
+            fwrite(bootmii_keys, 1, sizeof(bootmii_keys_bin_t), fp);
+            fclose(fp);
+            fp = NULL;
+        } else {
+            printf("\n\t- Unable to open bootmii_keys.bin for writing.");
+            printf("\n\t- Sorry, not writing BootMii keys.bin data to %s.\n", StorageDeviceString());
+            sleep(2);
+        }
     }
     
 out:
+    if (bootmii_keys) free(bootmii_keys);
+    
     if (seeprom_data) free(seeprom_data);
     
     if (otp_data) free(otp_data);
