@@ -22,7 +22,7 @@ typedef struct
     u8 rng_key[16];
     u32 unk1;
     u32 unk2; // 0x00000007
-} __attribute__((packed)) otp_t;
+} otp_t;
 
 u8 otp_read(void *dst, u8 offset, u8 size);
 

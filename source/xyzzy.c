@@ -6,21 +6,23 @@
 
 /* Kudos to WiiPower and Arikado for additional init code */
 
-/* DarkMatterCore - 2019 */
+/* DarkMatterCore - 2020 */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <malloc.h>
 #include <gccore.h>
+#include <network.h>
 
 #include "tools.h"
 #include "otp.h"
 #include "mini_seeprom.h"
+#include "sha1.h"
 
-#define XYZZY_KEY_CNT   10
+#define SYSTEM_MENU_TID     (u64)0x0000000100000002
 
-#define DEVCERT_SIZE    0x200
+#define DEVCERT_BUF_SIZE    0x200
+#define DEVCERT_SIZE        0x180
 
 typedef struct {
     char human_info[0x100];
@@ -30,8 +32,65 @@ typedef struct {
     u8 seeprom_padding[0x100];
 } bootmii_keys_bin_t;
 
-static u8 otp_ptr[OTP_SIZE];
-static u8 seeprom_ptr[SEEPROM_SIZE];
+typedef struct {
+    char content_name[8];
+    sha1 content_hash;
+} __attribute__((packed)) content_map_entry_t;
+
+typedef struct {
+    u8 key[64];
+    u32 key_size;
+    u8 hash[20];
+    bool retrieved;
+} additional_keyinfo_t;
+
+static u8 otp_ptr[OTP_SIZE] = {0};
+static u8 seeprom_ptr[SEEPROM_SIZE] = {0};
+
+static additional_keyinfo_t additional_keys[] = {
+    {
+        // SD Key. Retrieved from the ES module from the current IOS.
+        .key = {0},
+        .key_size = 16,
+        .hash = { 0x10, 0x37, 0xD8, 0x80, 0x10, 0x2F, 0xF0, 0x21, 0xC2, 0x2B, 0xA8, 0xF5, 0xDF, 0x53, 0xD7, 0x98, 0xCF, 0x44, 0xDD, 0x0B },
+        .retrieved = false
+    },
+    {
+        // SD IV. Retrieved from System Menu binary.
+        .key = {0},
+        .key_size = 16,
+        .hash = { 0x25, 0xAE, 0xEF, 0x2E, 0x60, 0x1E, 0xDE, 0x3E, 0x16, 0x17, 0x54, 0x3B, 0xEB, 0x2E, 0xDE, 0xB0, 0x8A, 0xF8, 0x7D, 0xA8 },
+        .retrieved = false
+    },
+    {
+        // MD5 Blanker. Retrieved from System Menu binary.
+        .key = {0},
+        .key_size = 16,
+        .hash = { 0x3D, 0xAB, 0xA9, 0xEF, 0x67, 0xCA, 0x94, 0xBF, 0x08, 0x28, 0xEC, 0x04, 0x39, 0x4A, 0x53, 0x13, 0x4D, 0x33, 0x1C, 0x1F },
+        .retrieved = false
+    },
+    {
+        // MAC Address. Retrieved from /dev/net virtual device. Console specific so this isn't hashed. Used to generate custom savedata.
+        .key = {0},
+        .key_size = 6,
+        .hash = {0},
+        .retrieved = false
+    }
+};
+
+static u32 additional_key_count = (u32)MAX_ELEMENTS(additional_keys);
+
+static const char *priiloader_files[] = {
+    "content/title_or.tmd",
+    "data/loader.ini",
+    "data/hackshas.ini",
+    "data/hacksh_s.ini",
+    "data/password.txt",
+    "data/main.nfo",
+    "data/main.bin"
+};
+
+static const u32 priiloader_files_count = (u32)MAX_ELEMENTS(priiloader_files);
 
 static const char *key_names[] = {
     "boot1 Hash   ",
@@ -44,6 +103,10 @@ static const char *key_names[] = {
     "NG Key ID    ",
     "NG Signature ",
     "Korean Key   ",
+    "SD Key      ",
+    "SD IV       ",
+    "MD5 Blanker ",
+    "MAC Address ",
     NULL
 };
 
@@ -79,21 +142,21 @@ static bool FillOTPStruct(otp_t **out)
 {
     if (!out)
     {
-        printf("\n\nFatal error: invalid output OTP struct pointer.");
+        printf("Fatal error: invalid output OTP struct pointer.\n\n");
         return false;
     }
     
     otp_t *otp_data = memalign(32, sizeof(otp_t));
     if (!otp_data)
     {
-        printf("\n\nFatal error: unable to allocate memory for OTP struct.");
+        printf("Fatal error: unable to allocate memory for OTP struct.\n\n");
         return false;
     }
     
     /* Read OTP data into otp_ptr pointer */
     if (!OTP_ReadData())
     {
-        printf("\n\nFatal error: OTP_ReadData() failed.");
+        printf("Fatal error: OTP_ReadData() failed.\n\n");
         OTP_ClearData();
         return false;
     }
@@ -112,21 +175,21 @@ static bool FillSEEPROMStruct(seeprom_t **out)
 {
     if (!out)
     {
-        printf("\n\nFatal error: invalid output SEEPROM struct pointer.");
+        printf("Fatal error: invalid output SEEPROM struct pointer.\n\n");
         return false;
     }
     
     seeprom_t *seeprom_data = memalign(32, sizeof(seeprom_t));
     if (!seeprom_data)
     {
-        printf("\n\nFatal error: unable to allocate memory for SEEPROM struct.");
+        printf("Fatal error: unable to allocate memory for SEEPROM struct.\n\n");
         return false;
     }
     
     /* Read SEEPROM data into seeprom_ptr pointer */
     if (!SEEPROM_ReadData())
     {
-        printf("\n\nFatal error: SEEPROM_ReadData() failed.");
+        printf("Fatal error: SEEPROM_ReadData() failed.\n\n");
         SEEPROM_ClearData();
         return false;
     }
@@ -145,14 +208,14 @@ static bool FillBootMiiKeysStruct(otp_t *otp_data, seeprom_t *seeprom_data, boot
 {
     if (!otp_data || !seeprom_data || !out)
     {
-        printf("\n\nFatal error: invalid OTP/SEEPROM/BootMiiKeys struct pointer(s).");
+        printf("Fatal error: invalid OTP/SEEPROM/BootMiiKeys struct pointer(s).\n\n");
         return false;
     }
     
     bootmii_keys_bin_t *bootmii_keys = memalign(32, sizeof(bootmii_keys_bin_t));
     if (!bootmii_keys)
     {
-        printf("\n\nFatal error: unable to allocate memory for BootMiiKeys struct.");
+        printf("Fatal error: unable to allocate memory for BootMiiKeys struct.\n\n");
         return false;
     }
     
@@ -160,7 +223,7 @@ static bool FillBootMiiKeysStruct(otp_t *otp_data, seeprom_t *seeprom_data, boot
     memset(bootmii_keys, 0, sizeof(bootmii_keys_bin_t));
     
     /* Fill human info text block */
-    sprintf(bootmii_keys->human_info, "BackupMii v1, ConsoleID: %02x%02x%02x%02x\n", otp_data->ng_id[0], otp_data->ng_id[1], otp_data->ng_id[2], otp_data->ng_id[3]);
+    sprintf(bootmii_keys->human_info, "BackupMii v1, ConsoleID: %08x\n", *((u32*)otp_data->ng_id));
     
     /* Fill OTP block */
     memcpy(&(bootmii_keys->otp_data), otp_data, sizeof(otp_t));
@@ -174,16 +237,204 @@ static bool FillBootMiiKeysStruct(otp_t *otp_data, seeprom_t *seeprom_data, boot
     return true;
 }
 
+static void RetrieveSDKey(void)
+{
+    content_map_entry_t *content_map = NULL;
+    u32 content_map_size = 0;
+    
+    u32 ios_version = (u32)IOS_GetVersion();
+    u64 ios_tid = TITLE_ID(1, ios_version);
+    
+    signed_blob *ios_stmd = NULL;
+    u32 ios_stmd_size = 0;
+    
+    tmd *ios_tmd = NULL;
+    tmd_content *ios_content = NULL;
+    
+    char content_path[ISFS_MAXPATH] = {0};
+    u8 *ios_content_data = NULL;
+    u32 ios_content_size = 0;
+    
+    sha1 hash = {0};
+    
+    /* Retrieve shared.map contents */
+    content_map = (content_map_entry_t*)ReadFileFromFlashFileSystem("/shared1/content.map", &content_map_size);
+    if (!content_map)
+    {
+        printf("Failed to retrieve \"%s\" contents!\n\n", content_path);
+        return;
+    }
+    
+    if ((content_map_size % sizeof(content_map_entry_t)) != 0)
+    {
+        printf("Invalid \"%s\" size!\n\n", content_path);
+        goto out;
+    }
+    
+    /* Calculate content.map entry count */
+    content_map_size /= sizeof(content_map_entry_t);
+    
+    /* Get IOS TMD */
+    ios_stmd = GetSignedTMDFromTitle(ios_tid, &ios_stmd_size);
+    if (!ios_stmd)
+    {
+        printf("Error retrieving IOS%u TMD!\n\n", ios_version);
+        goto out;
+    }
+    
+    ios_tmd = GetTMDFromSignedBlob(ios_stmd);
+    
+    /* Loop through all contents */
+    for(u16 i = 0; i < ios_tmd->num_contents; i++)
+    {
+        u32 j = 0;
+        ios_content = &(ios_tmd->contents[i]);
+        
+        /* Only process shared contents */
+        if (ios_content->type != 0x8001) continue;
+        
+        /* Look for this content's hash in the content.map data */
+        for(j = 0; j < content_map_size; j++)
+        {
+            if (!memcmp(ios_content->hash, content_map[j].content_hash, 20)) break;
+        }
+        
+        /* Continue if we couldn't find this hash */
+        if (j >= content_map_size) continue;
+        
+        /* Generate shared content path and read it */
+        sprintf(content_path, "/shared1/%.*s.app", sizeof(content_map[j].content_name), content_map[j].content_name);
+        
+        ios_content_data = (u8*)ReadFileFromFlashFileSystem(content_path, &ios_content_size);
+        if (!ios_content_data) continue;
+        
+        /* Look for our key */
+        for(j = 0; j < ios_content_size; j++)
+        {
+            if (additional_keys[0].key_size > (ios_content_size - j)) break;
+            
+            if (SHA1(ios_content_data + j, additional_keys[0].key_size, hash) != shaSuccess) continue;
+            
+            if (!memcmp(hash, additional_keys[0].hash, 20))
+            {
+                memcpy(additional_keys[0].key, ios_content_data + j, additional_keys[0].key_size);
+                additional_keys[0].retrieved = true;
+                break;
+            }
+        }
+        
+        free(ios_content_data);
+        ios_content_data = NULL;
+        ios_content_size = 0;
+        
+        if (additional_keys[0].retrieved) break;
+    }
+    
+out:
+    if (ios_stmd) free(ios_stmd);
+    if (content_map) free(content_map);
+}
+
+static void RetrieveSystemMenuKeys(void)
+{
+    signed_blob *sysmenu_stmd = NULL;
+    u32 sysmenu_stmd_size = 0;
+    
+    tmd *sysmenu_tmd = NULL;
+    tmd_content *sysmenu_boot_content = NULL;
+    
+    char content_path[ISFS_MAXPATH] = {0};
+    u8 *sysmenu_boot_content_data = NULL;
+    u32 sysmenu_boot_content_size = 0;
+    
+    bool priiloader = false;
+    
+    sha1 hash = {0};
+    
+    /* Get System Menu TMD */
+    sysmenu_stmd = GetSignedTMDFromTitle(SYSTEM_MENU_TID, &sysmenu_stmd_size);
+    if (!sysmenu_stmd)
+    {
+        printf("Error retrieving System Menu TMD!\n\n");
+        return;
+    }
+    
+    sysmenu_tmd = GetTMDFromSignedBlob(sysmenu_stmd);
+    
+    /* Get System Menu TMD boot content entry */
+    sysmenu_boot_content = &(sysmenu_tmd->contents[sysmenu_tmd->boot_index]);
+    
+    /* Check for Priiloader */
+    for(u32 i = 0; i < priiloader_files_count; i++)
+    {
+        sprintf(content_path, "/title/%08x/%08x/%s", TITLE_UPPER(SYSTEM_MENU_TID), TITLE_LOWER(SYSTEM_MENU_TID), priiloader_files[i]);
+        if (CheckIfFlashFileSystemFileExists(content_path))
+        {
+            priiloader = true;
+            break;
+        }
+    }
+    
+    /* Generate boot content path and read it */
+    sprintf(content_path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(SYSTEM_MENU_TID), TITLE_LOWER(SYSTEM_MENU_TID), \
+            priiloader ? (0x10000000 | sysmenu_boot_content->cid) : sysmenu_boot_content->cid);
+    sysmenu_boot_content_data = (u8*)ReadFileFromFlashFileSystem(content_path, &sysmenu_boot_content_size);
+    if (!sysmenu_boot_content_data && priiloader)
+    {
+        sprintf(content_path, "/title/%08x/%08x/content/%08x.app", TITLE_UPPER(SYSTEM_MENU_TID), TITLE_LOWER(SYSTEM_MENU_TID), sysmenu_boot_content->cid);
+        sysmenu_boot_content_data = (u8*)ReadFileFromFlashFileSystem(content_path, &sysmenu_boot_content_size);
+    }
+    
+    if (!sysmenu_boot_content_data)
+    {
+        printf("Failed to read System Menu boot content data!\n\n");
+        goto out;
+    }
+    
+    /* Retrieve keys starting from the right index */
+    for(u32 i = 1; i < 3; i++)
+    {
+        for(u32 offset = 0; offset < sysmenu_boot_content_size; offset++)
+        {
+            if (additional_keys[i].key_size > (sysmenu_boot_content_size - offset)) break;
+            
+            if (SHA1(sysmenu_boot_content_data + offset, additional_keys[i].key_size, hash) != shaSuccess) continue;
+            
+            if (!memcmp(hash, additional_keys[i].hash, 20))
+            {
+                memcpy(additional_keys[i].key, sysmenu_boot_content_data + offset, additional_keys[i].key_size);
+                additional_keys[i].retrieved = true;
+                break;
+            }
+        }
+    }
+    
+out:
+    if (sysmenu_boot_content_data) free(sysmenu_boot_content_data);
+    if (sysmenu_stmd) free(sysmenu_stmd);
+}
+
+static void GetMACAddress(void)
+{
+    s32 ret = net_get_mac_address(&(additional_keys[3].key));
+    if (ret >= 0)
+    {
+        additional_keys[3].retrieved = true;
+    } else {
+        printf("net_get_mac_address failed! (%d)\n\n", ret);
+    }
+}
+
 static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, FILE *fp)
 {
     if (!otp_data || !fp) return;
     
-    /* We'll use this for the Korean common key check */
-    u8 null_key[16];
-    memset(null_key, 0, 16);
+    u8 key_idx = 1;
     
-    u8 i;
-    for(i = 0; i < XYZZY_KEY_CNT; i++)
+    /* We'll use this for the Korean common key check */
+    u8 null_key[16] = {0};
+    
+    for(u8 i = 0; key_names[i]; i++)
     {
         /* Do not print SEEPROM keys if its access is disabled */
         if (!seeprom_data && (i == 7 || i == 8 || i == 9)) continue;
@@ -192,9 +443,12 @@ static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, FILE *fp)
         /* Otherwise, we'll just skip it */
         if (seeprom_data && i == 9 && !memcmp(seeprom_data->korean_key, null_key, sizeof(seeprom_data->korean_key))) continue;
         
-        fprintf(fp, "[%d] %s:\t", i, key_names[i]);
+        /* Only display the current additional key if we retrieved it */
+        if (i >= 10 && !additional_keys[i - 10].retrieved) continue;
         
-        switch (i)
+        fprintf(fp, "[%u] %s: ", key_idx, key_names[i]);
+        
+        switch(i)
         {
             case 0: // boot1 Hash
                 HexKeyDump(fp, otp_data->boot1_hash, sizeof(otp_data->boot1_hash));
@@ -218,7 +472,7 @@ static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, FILE *fp)
                 HexKeyDump(fp, otp_data->rng_key, sizeof(otp_data->rng_key));
                 break;
             case 7: // NG Key ID
-                HexKeyDump(fp, seeprom_data->ng_key_id, sizeof(seeprom_data->ng_key_id));
+                HexKeyDump(fp, &(seeprom_data->ng_key_id), sizeof(seeprom_data->ng_key_id));
                 break;
             case 8: // NG Signature
                 HexKeyDump(fp, seeprom_data->ng_sig, sizeof(seeprom_data->ng_sig));
@@ -226,11 +480,14 @@ static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, FILE *fp)
             case 9: // Korean Key
                 HexKeyDump(fp, seeprom_data->korean_key, sizeof(seeprom_data->korean_key));
                 break;
-            default:
+            default: // Additional keys
+                HexKeyDump(fp, additional_keys[i - 10].key, additional_keys[i - 10].key_size);
                 break;
         }
         
         fprintf(fp, "\r\n");
+        
+        key_idx++;
     }
 }
 
@@ -243,6 +500,7 @@ int XyzzyGetKeys(bool vWii)
     otp_t *otp_data = NULL;
     seeprom_t *seeprom_data = NULL;
     bootmii_keys_bin_t *bootmii_keys = NULL;
+    u8 *devcert = NULL;
     
     ret = SelectStorageDevice();
     
@@ -266,7 +524,7 @@ int XyzzyGetKeys(bool vWii)
     ret = 0;
     
     PrintHeadline();
-    printf("Getting keys...\n\n");
+    printf("Getting keys, please wait...\n\n");
     
     if (!FillOTPStruct(&otp_data))
     {
@@ -275,9 +533,9 @@ int XyzzyGetKeys(bool vWii)
         goto out;
     }
     
-    /* Access to the SEEPROM will be disabled in we're running under vWii */
     if (!vWii)
     {
+        /* Access to the SEEPROM will be disabled in we're running under vWii */
         if (!FillSEEPROMStruct(&seeprom_data))
         {
             ret = -1;
@@ -293,34 +551,76 @@ int XyzzyGetKeys(bool vWii)
         }
     }
     
+    /* Initialize filesystem driver */
+    ret = ISFS_Initialize();
+    if (ret >= 0)
+    {
+        /* Retrieve SD key from IOS */
+        RetrieveSDKey();
+        
+        /* Retrieve keys from System Menu binary */
+        RetrieveSystemMenuKeys();
+        
+        /* Deinitialize filesystem driver */
+        ISFS_Deinitialize();
+    } else {
+        printf("ISFS_Initialize failed! (%d)\n\n", ret);
+    }
+    
+    /* Get MAC address */
+    GetMACAddress();
+    
+    /* Get device certificate */
+    devcert = memalign(32, DEVCERT_BUF_SIZE);
+    if (devcert)
+    {
+        memset(devcert, 42, DEVCERT_BUF_SIZE); // Why... ?
+        
+        ret = ES_GetDeviceCert(devcert);
+        if (ret < 0)
+        {
+            free(devcert);
+            devcert = NULL;
+            printf("ES_GetDeviceCert failed! (%d)\n\n", ret);
+        }
+    } else {
+        printf("Error allocating memory for device certificate buffer.\n\n");
+    }
+    
+    /* Print all keys to stdout */
     PrintAllKeys(otp_data, seeprom_data, stdout);
     
     if (fp)
     {
+        /* Print all keys to output txt */
         PrintAllKeys(otp_data, seeprom_data, fp);
         
         /* This will create a hexdump of the device.cert in the selected device */
-        u8 *devcert = memalign(32, 0x200);
         if (devcert)
         {
-            memset(devcert, 42, 0x200); // Why... ?
-            
-            ret = ES_GetDeviceCert(devcert);
-            if (ret)
-            {
-                printf("\n\nES_GetDeviceCert() returned %d.\n\n", ret);
-            } else {
-                fprintf(fp, "\r\nDevice cert:\r\n");
-                HexDump(fp, devcert, 0x180);
-            }
-            
-            free(devcert);
-        } else {
-            printf("\n\nError allocating memory for device certificate buffer.\n\n");
+            fprintf(fp, "\r\nDevice cert:\r\n");
+            HexDump(fp, devcert, DEVCERT_SIZE);
         }
         
         fclose(fp);
         fp = NULL;
+    }
+    
+    if (devcert)
+    {
+        /* Save raw device.cert */
+        sprintf(path, "%s:/device.cert", StorageDeviceMountName());
+        fp = fopen(path, "wb");
+        if (fp)
+        {
+            fwrite(devcert, 1, DEVCERT_SIZE, fp);
+            fclose(fp);
+            fp = NULL;
+        } else {
+            printf("\n\t- Unable to open device.cert for writing.");
+            printf("\n\t- Sorry, not writing raw device.cert to %s.\n", StorageDeviceString());
+            sleep(2);
+        }
     }
     
     /* Save raw OTP data */
@@ -368,6 +668,8 @@ int XyzzyGetKeys(bool vWii)
     }
     
 out:
+    if (devcert) free(devcert);
+    
     if (bootmii_keys) free(bootmii_keys);
     
     if (seeprom_data) free(seeprom_data);

@@ -14,11 +14,12 @@ u8 otp_read(void *dst, u8 offset, u8 size)
 {
     if (!dst || offset >= OTP_SIZE || !size || (offset + size) > OTP_SIZE) return 0;
     
-    u8 i, cur_offset = 0;
+    u8 cur_offset = 0;
     
     u8 *ptr = (u8*)dst;
-    u8 val[HW_OTP_BLK_SIZE];
+    u8 val[HW_OTP_BLK_SIZE] = {0};
     
+    // Calculate block offsets and sizes
     u8 start_addr = (offset / HW_OTP_BLK_SIZE);
     u8 start_addr_offset = (offset % HW_OTP_BLK_SIZE);
     
@@ -33,31 +34,32 @@ u8 otp_read(void *dst, u8 offset, u8 size)
     
     if (end_addr == start_addr) end_addr_size -= start_addr_offset;
     
-    for(i = start_addr; i <= end_addr; i++)
+    for(u8 i = start_addr; i <= end_addr; i++)
     {
         if (cur_offset >= size) break;
         
+        // Send command + address
         HW_OTP_COMMAND = (0x80000000 | i);
+        
+        // Receive data
         *((u32*)val) = HW_OTP_DATA;
         
-        if (start_addr == end_addr)
+        // Copy read data to destination buffer
+        if (i == start_addr && start_addr_offset != 0)
         {
-            memcpy(ptr + cur_offset, val + start_addr_offset, end_addr_size);
+            // Handle unaligned read at start address
+            memcpy(ptr + cur_offset, val + start_addr_offset, HW_OTP_BLK_SIZE - start_addr_offset);
+            cur_offset += (HW_OTP_BLK_SIZE - start_addr_offset);
+        } else
+        if (i == end_addr && end_addr_size != HW_OTP_BLK_SIZE)
+        {
+            // Handle unaligned read at end address
+            memcpy(ptr + cur_offset, val, end_addr_size);
             cur_offset += end_addr_size;
         } else {
-            if (i == start_addr)
-            {
-                memcpy(ptr + cur_offset, val + start_addr_offset, HW_OTP_BLK_SIZE - start_addr_offset);
-                cur_offset += (HW_OTP_BLK_SIZE - start_addr_offset);
-            } else
-            if (i == end_addr)
-            {
-                memcpy(ptr + cur_offset, val, end_addr_size);
-                cur_offset += end_addr_size;
-            } else {
-                memcpy(ptr + cur_offset, val, HW_OTP_BLK_SIZE);
-                cur_offset += HW_OTP_BLK_SIZE;
-            }
+            // Normal read
+            memcpy(ptr + cur_offset, val, HW_OTP_BLK_SIZE);
+            cur_offset += HW_OTP_BLK_SIZE;
         }
     }
     

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <gccore.h>
+#include <runtimeiospatch.h>
 
 #include "tools.h"
 
@@ -26,8 +27,15 @@ int main(int argc, char **argv)
     if (AHBPROT_DISABLED)
     {
         /* HW_AHBPROT flag is disabled */
-        ret = XyzzyGetKeys(vWii);
-        if (ret != -2) printf("\nPress any button to exit.");
+        printf("Applying runtime IOS patches, please wait...\n\n");
+        ret = IosPatch_RUNTIME(true, false, false, false);
+        if (ret > 0)
+        {
+            ret = XyzzyGetKeys(vWii);
+            if (ret != -2) printf("\nPress any button to exit.");
+        } else {
+            printf("Failed to apply runtime IOS patches! Press any button to exit.");
+        }
     } else {
         /* HW_AHBPROT flag is enabled */
         printf("The HW_AHBPROT hardware register is not disabled.\n");

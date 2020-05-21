@@ -29,6 +29,13 @@ typedef enum {
 
 static storage_device_type_t device_type = STORAGE_DEVICE_TYPE_NONE;
 
+static u64 tmd_tid ATTRIBUTE_ALIGN(32) = 0;
+static u32 tmd_size ATTRIBUTE_ALIGN(32) = 0;
+
+static s32 isfs_fd ATTRIBUTE_ALIGN(32) = 0;
+static char isfs_file_path[ISFS_MAXPATH] ATTRIBUTE_ALIGN(32) = {0};
+static fstats isfs_file_stats ATTRIBUTE_ALIGN(32) = {0};
+
 bool IsWiiU(void)
 {
     s32 ret = 0;
@@ -139,7 +146,7 @@ void PrintHeadline(void)
     printf("\x1B[%d;%dH", 0, cols - strlen(buf) - 1);
     printf(buf);
     
-    printf("\nOriginal code by bushing. Modifications by DarkMatterCore.\n\n");
+    printf("\nOriginal code by bushing (RIP). Maintained by DarkMatterCore.\n\n");
 }
 
 static void SetHighlight(bool highlight)
@@ -290,7 +297,7 @@ int SelectStorageDevice(void)
     
     if (ret == -2) return ret;
     
-    printf("Mounting %s...", options[selection]);
+    printf("\n\nMounting %s...", options[selection]);
     
     switch(selection)
     {
@@ -409,8 +416,133 @@ void HexKeyDump(FILE *fp, void *d, size_t len)
             {
                 fprintf(fp, " ");
             } else {
-                fprintf(fp, "\r\n\t\t\t\t\t");
+                fprintf(fp, "\r\n                   ");
             }
         }
     }
+}
+
+signed_blob *GetSignedTMDFromTitle(u64 title_id, u32 *out_size)
+{
+    if (!out_size) return NULL;
+    
+    s32 ret = 0;
+    signed_blob *stmd = NULL;
+    bool success = false;
+    
+    tmd_tid = title_id;
+    
+    ret = ES_GetStoredTMDSize(tmd_tid, &tmd_size);
+    if (ret < 0)
+    {
+        printf("ES_GetStoredTMDSize failed! (%d) (TID %X-%X)\n", ret, TITLE_UPPER(tmd_tid), TITLE_LOWER(tmd_tid));
+        return NULL;
+    }
+    
+    stmd = (signed_blob*)memalign(32, ALIGN_UP(tmd_size, 32));
+    if (!stmd)
+    {
+        printf("Failed to allocate memory for TMD! (TID %X-%X)\n", TITLE_UPPER(tmd_tid), TITLE_LOWER(tmd_tid));
+        return NULL;
+    }
+    
+    ret = ES_GetStoredTMD(tmd_tid, stmd, tmd_size);
+    if (ret < 0)
+    {
+        printf("ES_GetStoredTMD failed! (%d) (TID %X-%X)\n", ret, TITLE_UPPER(tmd_tid), TITLE_LOWER(tmd_tid));
+        goto out;
+    }
+    
+    if (!IS_VALID_SIGNATURE(stmd))
+    {
+        printf("Invalid TMD signature! (TID %X-%X)\n", TITLE_UPPER(tmd_tid), TITLE_LOWER(tmd_tid));
+        goto out;
+    }
+    
+    *out_size = tmd_size;
+    success = true;
+    
+out:
+    if (!success && stmd)
+    {
+        free(stmd);
+        stmd = NULL;
+    }
+    
+    return stmd;
+}
+
+void *ReadFileFromFlashFileSystem(const char *path, u32 *out_size)
+{
+    if (!path || !strlen(path) || !out_size) return NULL;
+    
+    s32 ret = 0;
+    u8 *buf = NULL;
+    bool success = false;
+    
+    snprintf(isfs_file_path, ISFS_MAXPATH, path);
+    
+    isfs_fd = ISFS_Open(isfs_file_path, ISFS_OPEN_READ);
+    if (isfs_fd < 0)
+    {
+        printf("ISFS_Open(\"%s\") failed! (%d)\n", isfs_file_path, isfs_fd);
+        return NULL;
+    }
+    
+    ret = ISFS_GetFileStats(isfs_fd, &isfs_file_stats);
+    if (ret < 0)
+    {
+        printf("ISFS_GetFileStats(\"%s\") failed! (%d)\n", isfs_file_path, ret);
+        goto out;
+    }
+    
+    if (!isfs_file_stats.file_length)
+    {
+        printf("\"%s\" is empty!\n", isfs_file_path);
+        goto out;
+    }
+    
+    buf = (u8*)memalign(32, ALIGN_UP(isfs_file_stats.file_length, 32));
+    if (!buf)
+    {
+        printf("Failed to allocate memory for \"%s\"!\n", isfs_file_path);
+        goto out;
+    }
+    
+    ret = ISFS_Read(isfs_fd, buf, isfs_file_stats.file_length);
+    if (ret < 0)
+    {
+        printf("ISFS_Read(\"%s\") failed! (%d)\n", isfs_file_path, ret);
+        goto out;
+    }
+    
+    *out_size = isfs_file_stats.file_length;
+    success = true;
+    
+out:
+    if (!success && buf)
+    {
+        free(buf);
+        buf = NULL;
+    }
+    
+    ISFS_Close(isfs_fd);
+    isfs_fd = 0;
+    
+    return (void*)buf;
+}
+
+bool CheckIfFlashFileSystemFileExists(const char *path)
+{
+    if (!path || !strlen(path)) return NULL;
+    
+    snprintf(isfs_file_path, ISFS_MAXPATH, path);
+    
+    isfs_fd = ISFS_Open(isfs_file_path, ISFS_OPEN_READ);
+    if (isfs_fd < 0) return false;
+    
+    ISFS_Close(isfs_fd);
+    isfs_fd = 0;
+    
+    return true;
 }
