@@ -92,7 +92,7 @@ static const char *priiloader_files[] = {
 
 static const u32 priiloader_files_count = (u32)MAX_ELEMENTS(priiloader_files);
 
-static const char *key_names[] = {
+static const char *key_names_stdout[] = {
     "boot1 Hash   ",
     "Common Key   ",
     "Console ID   ",
@@ -107,6 +107,24 @@ static const char *key_names[] = {
     "SD IV       ",
     "MD5 Blanker ",
     "MAC Address ",
+    NULL
+};
+
+static const char *key_names_txt[] = {
+    "boot1_hash      ",
+    "wii_common_key  ",
+    "console_id      ",
+    "ecc_private_key ",
+    "nand_hmac       ",
+    "nand_aes_key    ",
+    "prng_key        ",
+    "ng_key_id       ",
+    "ng_signature    ",
+    "wii_korean_key  ",
+    "sd_key          ",
+    "sd_iv           ",
+    "md5_blanker     ",
+    "mac_address     ",
     NULL
 };
 
@@ -425,11 +443,12 @@ static void GetMACAddress(void)
     }
 }
 
-static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, FILE *fp)
+static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, FILE *fp, bool is_txt)
 {
     if (!otp_data || !fp) return;
     
     u8 key_idx = 1;
+    const char **key_names = (is_txt ? key_names_txt : key_names_stdout);
     
     /* We'll use this for the Korean common key check */
     u8 null_key[16] = {0};
@@ -446,42 +465,47 @@ static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, FILE *fp)
         /* Only display the current additional key if we retrieved it */
         if (i >= 10 && !additional_keys[i - 10].retrieved) continue;
         
-        fprintf(fp, "[%u] %s: ", key_idx, key_names[i]);
+        if (is_txt)
+        {
+            fprintf(fp, "%s= ", key_names[i]);
+        } else {
+            fprintf(fp, "[%u] %s: ", key_idx, key_names[i]);
+        }
         
         switch(i)
         {
             case 0: // boot1 Hash
-                HexKeyDump(fp, otp_data->boot1_hash, sizeof(otp_data->boot1_hash));
+                HexKeyDump(fp, otp_data->boot1_hash, sizeof(otp_data->boot1_hash), !is_txt);
                 break;
             case 1: // Common Key
-                HexKeyDump(fp, otp_data->common_key, sizeof(otp_data->common_key));
+                HexKeyDump(fp, otp_data->common_key, sizeof(otp_data->common_key), !is_txt);
                 break;
             case 2: // Console ID
-                HexKeyDump(fp, otp_data->ng_id, sizeof(otp_data->ng_id));
+                HexKeyDump(fp, otp_data->ng_id, sizeof(otp_data->ng_id), !is_txt);
                 break;
             case 3: // ECC Priv Key
-                HexKeyDump(fp, otp_data->ng_priv, sizeof(otp_data->ng_priv));
+                HexKeyDump(fp, otp_data->ng_priv, sizeof(otp_data->ng_priv), !is_txt);
                 break;
             case 4: // NAND HMAC
-                HexKeyDump(fp, otp_data->nand_hmac, sizeof(otp_data->nand_hmac));
+                HexKeyDump(fp, otp_data->nand_hmac, sizeof(otp_data->nand_hmac), !is_txt);
                 break;
             case 5: // NAND AES Key
-                HexKeyDump(fp, otp_data->nand_key, sizeof(otp_data->nand_key));
+                HexKeyDump(fp, otp_data->nand_key, sizeof(otp_data->nand_key), !is_txt);
                 break;
             case 6: // PRNG Key
-                HexKeyDump(fp, otp_data->rng_key, sizeof(otp_data->rng_key));
+                HexKeyDump(fp, otp_data->rng_key, sizeof(otp_data->rng_key), !is_txt);
                 break;
             case 7: // NG Key ID
-                HexKeyDump(fp, &(seeprom_data->ng_key_id), sizeof(seeprom_data->ng_key_id));
+                HexKeyDump(fp, &(seeprom_data->ng_key_id), sizeof(seeprom_data->ng_key_id), !is_txt);
                 break;
             case 8: // NG Signature
-                HexKeyDump(fp, seeprom_data->ng_sig, sizeof(seeprom_data->ng_sig));
+                HexKeyDump(fp, seeprom_data->ng_sig, sizeof(seeprom_data->ng_sig), !is_txt);
                 break;
             case 9: // Korean Key
-                HexKeyDump(fp, seeprom_data->korean_key, sizeof(seeprom_data->korean_key));
+                HexKeyDump(fp, seeprom_data->korean_key, sizeof(seeprom_data->korean_key), !is_txt);
                 break;
             default: // Additional keys
-                HexKeyDump(fp, additional_keys[i - 10].key, additional_keys[i - 10].key_size);
+                HexKeyDump(fp, additional_keys[i - 10].key, additional_keys[i - 10].key_size, !is_txt);
                 break;
         }
         
@@ -588,19 +612,12 @@ int XyzzyGetKeys(bool vWii)
     }
     
     /* Print all keys to stdout */
-    PrintAllKeys(otp_data, seeprom_data, stdout);
+    PrintAllKeys(otp_data, seeprom_data, stdout, false);
     
     if (fp)
     {
         /* Print all keys to output txt */
-        PrintAllKeys(otp_data, seeprom_data, fp);
-        
-        /* This will create a hexdump of the device.cert in the selected device */
-        if (devcert)
-        {
-            fprintf(fp, "\r\nDevice cert:\r\n");
-            HexDump(fp, devcert, DEVCERT_SIZE);
-        }
+        PrintAllKeys(otp_data, seeprom_data, fp, true);
         
         fclose(fp);
         fp = NULL;

@@ -5,7 +5,7 @@
 #include <wiiuse/wpad.h>
 #include <malloc.h>
 
-#define VERSION             "1.2.8"
+#define VERSION             "1.2.9"
 
 //#define IsWiiU()          (((*(vu32*)0xCD8005A0) >> 16) == 0xCAFE)
 #define ResetScreen()       printf("\x1b[2J")
@@ -33,8 +33,7 @@ int SelectStorageDevice(void);
 char *StorageDeviceString(void);
 char *StorageDeviceMountName(void);
 
-void HexDump(FILE *fp, void *d, size_t len);
-void HexKeyDump(FILE *fp, void *d, size_t len);
+void HexKeyDump(FILE *fp, void *d, size_t len, bool add_spaces);
 
 signed_blob *GetSignedTMDFromTitle(u64 title_id, u32 *out_size);
 

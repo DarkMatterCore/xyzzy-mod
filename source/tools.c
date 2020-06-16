@@ -363,43 +363,7 @@ char *StorageDeviceMountName(void)
     return str;
 }
 
-static char ascii(char s)
-{
-    if (s < 0x20 || s > 0x7E) return '.';
-    return s;
-}
-
-void HexDump(FILE *fp, void *d, size_t len)
-{
-    if (!fp || !d || !len) return;
-    
-    size_t i, off;
-    u8 *data = (u8*)d;
-    
-    for(off = 0; off < len; off += 16)
-    {
-        fprintf(fp, "%08X    ", off);
-        
-        for(i = 0; i < 16; i++)
-        {
-            if ((i + off) >= len) break;
-            fprintf(fp, "%02X", data[off + i]);
-            if ((i + 1) < 16) fprintf(fp, " ");
-        }
-        
-        fprintf(fp, "    ");
-        
-        for(i = 0; i < 16; i++)
-        {
-            if ((i + off) >= len) break;
-            fprintf(fp, "%c", ascii(data[off + i]));
-        }
-        
-        fprintf(fp, "\r\n");
-    }
-}
-
-void HexKeyDump(FILE *fp, void *d, size_t len)
+void HexKeyDump(FILE *fp, void *d, size_t len, bool add_spaces)
 {
     if (!fp || !d || !len) return;
     
@@ -410,7 +374,7 @@ void HexKeyDump(FILE *fp, void *d, size_t len)
     {
         fprintf(fp, "%02X", data[i]);
         
-        if ((i + 1) < len)
+        if (add_spaces && (i + 1) < len)
         {
             if (((i + 1) % 16) > 0)
             {
