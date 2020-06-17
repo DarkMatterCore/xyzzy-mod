@@ -18,11 +18,14 @@
 #include "otp.h"
 #include "mini_seeprom.h"
 #include "sha1.h"
+#include "aes.h"
 
 #define SYSTEM_MENU_TID     (u64)0x0000000100000002
 
 #define DEVCERT_BUF_SIZE    0x200
 #define DEVCERT_SIZE        0x180
+
+#define ANCAST_HEADER_MAGIC (u32)0xEFA282D9
 
 typedef struct {
     char human_info[0x100];
@@ -43,6 +46,28 @@ typedef struct {
     u8 hash[20];
     bool retrieved;
 } additional_keyinfo_t;
+
+typedef struct {
+    u32 magic;
+    u32 unk_1;
+    u32 signature_offset;
+    u32 unk_2;
+    u8 unk_3[0x10];
+    u32 signature_type;
+    u8 signature[0x38];
+    u8 padding_1[0x44];
+    u16 unk_4;
+    u8 unk_5;
+    u8 unk_6;
+    u32 unk_7;
+    u32 hash_type;
+    u32 body_size;
+    u8 body_hash[0x14];
+    u8 padding_2[0x3C];
+} ppc_ancast_image_header_t;
+
+static const u8 vwii_ancast_key[0x10] = { 0x2E, 0xFE, 0x8A, 0xBC, 0xED, 0xBB, 0x7B, 0xAA, 0xE3, 0xC0, 0xED, 0x92, 0xFA, 0x29, 0xF8, 0x66 };
+static const u8 vwii_ancast_iv[0x10]  = { 0x59, 0x6D, 0x5A, 0x9A, 0xD7, 0x05, 0xF9, 0x4F, 0xE1, 0x58, 0x02, 0x6F, 0xEA, 0xA7, 0xB8, 0x87 };
 
 static u8 otp_ptr[OTP_SIZE] = {0};
 static u8 seeprom_ptr[SEEPROM_SIZE] = {0};
@@ -353,7 +378,7 @@ out:
     if (content_map) free(content_map);
 }
 
-static void RetrieveSystemMenuKeys(void)
+static void RetrieveSystemMenuKeys(bool vWii)
 {
     signed_blob *sysmenu_stmd = NULL;
     u32 sysmenu_stmd_size = 0;
@@ -364,6 +389,8 @@ static void RetrieveSystemMenuKeys(void)
     char content_path[ISFS_MAXPATH] = {0};
     u8 *sysmenu_boot_content_data = NULL;
     u32 sysmenu_boot_content_size = 0;
+    
+    u8 *binary_body = NULL;
     
     bool priiloader = false;
     
@@ -409,6 +436,45 @@ static void RetrieveSystemMenuKeys(void)
         goto out;
     }
     
+    if (vWii)
+    {
+        /* Retrieve a pointer to the PPC Ancast Image header */
+        ppc_ancast_image_header_t *ancast_image_header = (ppc_ancast_image_header_t*)(sysmenu_boot_content_data + 0x500);
+        if (ancast_image_header->magic != ANCAST_HEADER_MAGIC)
+        {
+            printf("Invalid vWii System Menu ancast image header magic word!\n\n");
+            goto out;
+        }
+        
+        /* Set the binary body pointer to the end of the PPC Ancast Image header and update size */
+        binary_body = (sysmenu_boot_content_data + 0x500 + sizeof(ppc_ancast_image_header_t));
+        sysmenu_boot_content_size = ancast_image_header->body_size;
+        
+        /* Calculate hash */
+        if (SHA1(binary_body, sysmenu_boot_content_size, hash) != shaSuccess)
+        {
+            printf("Failed to calculate encrypted vWii System Menu ancast image body SHA-1 hash!\n\n");
+            goto out;
+        }
+        
+        /* Compare hashes */
+        if (memcmp(hash, ancast_image_header->body_hash, 20) != 0)
+        {
+            printf("Encrypted vWii System Menu ancast image body SHA-1 hash mismatch!\n\n");
+            goto out;
+        }
+        
+        /* Decrypt System Menu binary using baked in vWii Ancast Key and IV (unavoidable...) */
+        if (aes_128_cbc_decrypt(vwii_ancast_key, vwii_ancast_iv, binary_body, sysmenu_boot_content_size) != 0)
+        {
+            printf("Failed to decrypt vWii System Menu ancast image body!\n\n");
+            goto out;
+        }
+    } else {
+        /* Set the binary body pointer to our allocated buffer */
+        binary_body = sysmenu_boot_content_data;
+    }
+    
     /* Retrieve keys starting from the right index */
     for(u32 i = 1; i < 3; i++)
     {
@@ -416,11 +482,11 @@ static void RetrieveSystemMenuKeys(void)
         {
             if (additional_keys[i].key_size > (sysmenu_boot_content_size - offset)) break;
             
-            if (SHA1(sysmenu_boot_content_data + offset, additional_keys[i].key_size, hash) != shaSuccess) continue;
+            if (SHA1(binary_body + offset, additional_keys[i].key_size, hash) != shaSuccess) continue;
             
             if (!memcmp(hash, additional_keys[i].hash, 20))
             {
-                memcpy(additional_keys[i].key, sysmenu_boot_content_data + offset, additional_keys[i].key_size);
+                memcpy(additional_keys[i].key, binary_body + offset, additional_keys[i].key_size);
                 additional_keys[i].retrieved = true;
                 break;
             }
@@ -583,7 +649,7 @@ int XyzzyGetKeys(bool vWii)
         RetrieveSDKey();
         
         /* Retrieve keys from System Menu binary */
-        RetrieveSystemMenuKeys();
+        RetrieveSystemMenuKeys(vWii);
         
         /* Deinitialize filesystem driver */
         ISFS_Deinitialize();
