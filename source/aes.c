@@ -19,7 +19,6 @@
  */
 
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
 #include <gctypes.h>
 
@@ -748,7 +747,7 @@ void rijndaelKeySetupEnc(u32 rk[/*44*/], const u8 cipherKey[])
 	rk[1] = GETU32(cipherKey +  4);
 	rk[2] = GETU32(cipherKey +  8);
 	rk[3] = GETU32(cipherKey + 12);
-	
+
 	for (i = 0; i < 10; i++)
 	{
 		temp  = rk[3];
@@ -770,7 +769,7 @@ void rijndaelKeySetupDec(u32 rk[/*44*/], const u8 cipherKey[])
 
 	/* expand the cipher key: */
 	rijndaelKeySetupEnc(rk, cipherKey);
-	
+
 	/* invert the order of the round keys: */
 	for (i = 0, j = 4*Nr; i < j; i += 4, j -= 4)
 	{
@@ -779,7 +778,7 @@ void rijndaelKeySetupDec(u32 rk[/*44*/], const u8 cipherKey[])
 		temp = rk[i + 2]; rk[i + 2] = rk[j + 2]; rk[j + 2] = temp;
 		temp = rk[i + 3]; rk[i + 3] = rk[j + 3]; rk[j + 3] = temp;
 	}
-	
+
 	/* apply the inverse MixColumn transform to all round keys but the first and the last: */
 	for (i = 1; i < Nr; i++)
 	{
@@ -808,15 +807,15 @@ void rijndaelEncrypt(const u32 rk[/*44*/], const u8 pt[16], u8 ct[16])
 	s1 = GETU32(pt +  4) ^ rk[1];
 	s2 = GETU32(pt +  8) ^ rk[2];
 	s3 = GETU32(pt + 12) ^ rk[3];
-	
+
 #define ROUND(i,d,s) \
 d##0 = TE0(s##0) ^ TE1(s##1) ^ TE2(s##2) ^ TE3(s##3) ^ rk[4 * i]; \
 d##1 = TE0(s##1) ^ TE1(s##2) ^ TE2(s##3) ^ TE3(s##0) ^ rk[4 * i + 1]; \
 d##2 = TE0(s##2) ^ TE1(s##3) ^ TE2(s##0) ^ TE3(s##1) ^ rk[4 * i + 2]; \
 d##3 = TE0(s##3) ^ TE1(s##0) ^ TE2(s##1) ^ TE3(s##2) ^ rk[4 * i + 3]
-	
+
 #ifdef FULL_UNROLL
-	
+
 	ROUND(1,t,s);
 	ROUND(2,s,t);
 	ROUND(3,t,s);
@@ -826,11 +825,11 @@ d##3 = TE0(s##3) ^ TE1(s##0) ^ TE2(s##1) ^ TE3(s##2) ^ rk[4 * i + 3]
 	ROUND(7,t,s);
 	ROUND(8,s,t);
 	ROUND(9,t,s);
-	
+
 	rk += Nr << 2;
-	
+
 #else  /* !FULL_UNROLL */
-	
+
     /* Nr - 1 full rounds: */
     r = Nr >> 1;
     for (;;)
@@ -840,11 +839,11 @@ d##3 = TE0(s##3) ^ TE1(s##0) ^ TE2(s##1) ^ TE3(s##2) ^ rk[4 * i + 3]
         if (--r == 0) break;
 		ROUND(0,s,t);
     }
-	
+
 #endif /* ?FULL_UNROLL */
-	
+
 #undef ROUND
-	
+
     /*
 	 * apply last round and
 	 * map cipher state to byte array block:
@@ -875,15 +874,15 @@ void rijndaelDecrypt(const u32 rk[/*44*/], const u8 ct[16], u8 pt[16])
     s1 = GETU32(ct +  4) ^ rk[1];
     s2 = GETU32(ct +  8) ^ rk[2];
     s3 = GETU32(ct + 12) ^ rk[3];
-	
+
 #define ROUND(i,d,s) \
 d##0 = TD0(s##0) ^ TD1(s##3) ^ TD2(s##2) ^ TD3(s##1) ^ rk[4 * i]; \
 d##1 = TD0(s##1) ^ TD1(s##0) ^ TD2(s##3) ^ TD3(s##2) ^ rk[4 * i + 1]; \
 d##2 = TD0(s##2) ^ TD1(s##1) ^ TD2(s##0) ^ TD3(s##3) ^ rk[4 * i + 2]; \
 d##3 = TD0(s##3) ^ TD1(s##2) ^ TD2(s##1) ^ TD3(s##0) ^ rk[4 * i + 3]
-	
+
 #ifdef FULL_UNROLL
-	
+
 	ROUND(1,t,s);
 	ROUND(2,s,t);
 	ROUND(3,t,s);
@@ -895,9 +894,9 @@ d##3 = TD0(s##3) ^ TD1(s##2) ^ TD2(s##1) ^ TD3(s##0) ^ rk[4 * i + 3]
 	ROUND(9,t,s);
 
 	rk += Nr << 2;
-	
+
 #else  /* !FULL_UNROLL */
-	
+
     /* Nr - 1 full rounds: */
     r = Nr >> 1;
     for (;;)
@@ -907,11 +906,11 @@ d##3 = TD0(s##3) ^ TD1(s##2) ^ TD2(s##1) ^ TD3(s##0) ^ rk[4 * i + 3]
 		if (--r == 0) break;
 		ROUND(0,s,t);
     }
-	
+
 #endif /* ?FULL_UNROLL */
 
 #undef ROUND
-	
+
     /*
 	 * apply last round and
 	 * map cipher state to byte array block:
@@ -930,14 +929,14 @@ void *aes_init(const u8 *key, bool Enc)
 {
 	u32 *rk = malloc(AES_PRIV_SIZE);
 	if (rk == NULL) return NULL;
-	
+
 	if (Enc)
 	{
 		rijndaelKeySetupEnc(rk, key);
 	} else {
 		rijndaelKeySetupDec(rk, key);
 	}
-	
+
 	return rk;
 }
 
@@ -961,12 +960,12 @@ int aes_128_cbc_encrypt(const u8 *key, const u8 *iv, u8 *data, size_t data_len)
 	u8 cbc[AES_BLOCK_SIZE];
 	u8 *pos = data;
 	int i, j, blocks;
-	
+
 	ctx = aes_init(key, true);
 	if (ctx == NULL) return -1;
-	
+
 	memcpy(cbc, iv, AES_BLOCK_SIZE);
-	
+
 	blocks = data_len / AES_BLOCK_SIZE;
 	for (i = 0; i < blocks; i++)
 	{
@@ -975,7 +974,7 @@ int aes_128_cbc_encrypt(const u8 *key, const u8 *iv, u8 *data, size_t data_len)
 		memcpy(pos, cbc, AES_BLOCK_SIZE);
 		pos += AES_BLOCK_SIZE;
 	}
-	
+
 	aes_deinit(ctx);
 	return 0;
 }
@@ -994,12 +993,12 @@ int aes_128_cbc_decrypt(const u8 *key, const u8 *iv, u8 *data, size_t data_len)
 	u8 cbc[AES_BLOCK_SIZE], tmp[AES_BLOCK_SIZE];
 	u8 *pos = data;
 	int i, j, blocks;
-	
+
 	ctx = aes_init(key, false);
 	if (ctx == NULL) return -1;
-	
+
 	memcpy(cbc, iv, AES_BLOCK_SIZE);
-	
+
 	blocks = data_len / AES_BLOCK_SIZE;
 	for (i = 0; i < blocks; i++)
 	{
@@ -1009,7 +1008,7 @@ int aes_128_cbc_decrypt(const u8 *key, const u8 *iv, u8 *data, size_t data_len)
 		memcpy(cbc, tmp, AES_BLOCK_SIZE);
 		pos += AES_BLOCK_SIZE;
 	}
-	
+
 	aes_deinit(ctx);
 	return 0;
 }

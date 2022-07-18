@@ -1,8 +1,7 @@
 build
-/*.elf
-/*.dol
-
-# Clion files
-.idea
-cmake-build-debug
-CMakeLists.txt
+output
+*.elf
+*.dol
+*.bin
+*.cert
+*.txt

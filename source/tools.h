@@ -4,8 +4,9 @@
 #include <sys/unistd.h>
 #include <wiiuse/wpad.h>
 #include <malloc.h>
+#include <stdio.h>
 
-#define VERSION             "1.3.1"
+#define VERSION             "1.3.2"
 
 //#define IsWiiU()          (((*(vu32*)0xCD8005A0) >> 16) == 0xCAFE)
 #define ResetScreen()       printf("\x1b[2J")
@@ -14,7 +15,8 @@
 #define TITLE_LOWER(x)      ((u32)(x))
 #define TITLE_ID(x, y)      (((u64)(x) << 32) | (y))
 
-#define ALIGN_UP(x, y)      ((((y) - 1) + (x)) & ~((y) - 1))
+#define ALIGN_UP(x, y)      (((x) + ((y) - 1)) & ~((y) - 1))
+#define ALIGN_DOWN(x, y)    ((x) & ~((y) - 1))
 
 #define MAX_ELEMENTS(x)     (sizeof((x)) / sizeof((x)[0]))
 

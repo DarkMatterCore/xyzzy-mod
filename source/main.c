@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <gccore.h>
@@ -13,16 +12,16 @@ int XyzzyGetKeys(bool vWii);
 int main(int argc, char **argv)
 {
     __exception_setreload(10);
-    
+
     int ret = 0;
-    
+
     InitConsole();
     InitPads();
-    
+
     bool vWii = IsWiiU();
-    
+
     PrintHeadline();
-    
+
     /* HW_AHBPROT check */
     if (AHBPROT_DISABLED)
     {
@@ -48,10 +47,10 @@ int main(int argc, char **argv)
         printf("without full hardware access rights.\n");
         printf("\nProcess cannot continue. Press any button to exit.");
     }
-    
+
     if (ret != -2) WaitForButtonPress(NULL, NULL);
-    
+
     Reboot();
-    
+
     return 0;
 }
