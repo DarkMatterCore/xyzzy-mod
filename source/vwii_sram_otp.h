@@ -11,7 +11,7 @@ typedef struct {
     /* locked out, seemingly */
     u8 korean_key[16];
     u8 nss_device_cert[32];
-} vwii_sram_otp;
+} vwii_sram_otp_t;
 
 u16 vwii_sram_otp_read(void *dst, u16 offset, u16 size);
 

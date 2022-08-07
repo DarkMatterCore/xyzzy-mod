@@ -353,7 +353,7 @@ static void RetrieveSDKey(void)
         if (!ios_content_data) continue;
 
         /* Look for our key */
-        for(j = 0; j < ios_content_size; j++)
+        for(j = 0; j < ios_content_size; j += 4)
         {
             if (additional_keys[0].key_size > (ios_content_size - j)) break;
 
@@ -361,6 +361,7 @@ static void RetrieveSDKey(void)
 
             if (!memcmp(hash, additional_keys[0].hash, 20))
             {
+                //printf("Found SD Key in \"%s\" at 0x%X.\n\n", content_path, j);
                 memcpy(additional_keys[0].key, ios_content_data + j, additional_keys[0].key_size);
                 additional_keys[0].retrieved = true;
                 break;
@@ -379,7 +380,7 @@ out:
     if (content_map) free(content_map);
 }
 
-static void RetrieveSystemMenuKeys(bool vWii)
+static void RetrieveSystemMenuKeys(void)
 {
     signed_blob *sysmenu_stmd = NULL;
     u32 sysmenu_stmd_size = 0;
@@ -437,7 +438,7 @@ static void RetrieveSystemMenuKeys(bool vWii)
         goto out;
     }
 
-    if (vWii)
+    if (g_isvWii)
     {
         /* Retrieve a pointer to the PPC Ancast Image header */
         ppc_ancast_image_header_t *ancast_image_header = (ppc_ancast_image_header_t*)(sysmenu_boot_content_data + 0x500);
@@ -476,22 +477,31 @@ static void RetrieveSystemMenuKeys(bool vWii)
         binary_body = sysmenu_boot_content_data;
     }
 
-    /* Retrieve keys starting from the right index */
-    for(u32 i = 1; i < 3; i++)
+    /* Retrieve keys */
+    for(u32 offset = 0; offset < sysmenu_boot_content_size; offset += 4)
     {
-        for(u32 offset = 0; offset < sysmenu_boot_content_size; offset++)
+        if ((additional_keys[1].retrieved && additional_keys[2].retrieved) || (sysmenu_boot_content_size - offset) < 16) break;
+
+        if (SHA1(binary_body + offset, 16, hash) != shaSuccess) continue;
+
+        u8 idx = 0;
+
+        if (!additional_keys[1].retrieved && !memcmp(hash, additional_keys[1].hash, 20))
         {
-            if (additional_keys[i].key_size > (sysmenu_boot_content_size - offset)) break;
-
-            if (SHA1(binary_body + offset, additional_keys[i].key_size, hash) != shaSuccess) continue;
-
-            if (!memcmp(hash, additional_keys[i].hash, 20))
-            {
-                memcpy(additional_keys[i].key, binary_body + offset, additional_keys[i].key_size);
-                additional_keys[i].retrieved = true;
-                break;
-            }
+            idx = 1;
+        } else
+        if (!additional_keys[2].retrieved && !memcmp(hash, additional_keys[2].hash, 20))
+        {
+            idx = 2;
         }
+
+        if (!idx) continue;
+
+        //printf("Found %s in \"%s\" at 0x%X.\n\n", idx == 1 ? "SD IV" : "MD5 Blanker", content_path, offset);
+        memcpy(additional_keys[idx].key, binary_body + offset, 16);
+        additional_keys[idx].retrieved = true;
+
+        offset += 12;
     }
 
 out:
@@ -504,31 +514,36 @@ static void GetMACAddress(void)
     s32 ret = net_get_mac_address(&(additional_keys[3].key));
     if (ret >= 0)
     {
+        //printf("Got WLAN MAC address.\n\n");
         additional_keys[3].retrieved = true;
     } else {
         printf("net_get_mac_address failed! (%d)\n\n", ret);
     }
 }
 
-static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, vwii_sram_otp *sram_otp_data, FILE *fp, bool is_txt)
+static void PrintAllKeys(const otp_t *otp_data, const seeprom_t *seeprom_data, const vwii_sram_otp_t *sram_otp_data, FILE *fp)
 {
     if (!otp_data || !fp) return;
 
     u8 key_idx = 1;
+    bool is_txt = (fp != stdout);
     const char **key_names = (is_txt ? key_names_txt : key_names_stdout);
 
     /* We'll use this for the Korean common key check */
     u8 null_key[16] = {0};
-    /* We'll use these to fetch the data that may come from multiple sources */
-    u8 *korean_key = NULL;
-    u8 *ng_sig = NULL;
-    u32 ng_key_id = 0;
 
-    if (seeprom_data) {
+    /* We'll use these to fetch the data that may come from multiple sources */
+    u32 ng_key_id = 0;
+    const u8 *korean_key = NULL, *ng_sig = NULL;
+
+    if (seeprom_data)
+    {
         korean_key = seeprom_data->korean_key;
         ng_sig = seeprom_data->ng_sig;
         ng_key_id = seeprom_data->ng_key_id;
-    } else if (sram_otp_data) {
+    } else
+    if (sram_otp_data)
+    {
         korean_key = sram_otp_data->korean_key;
         ng_sig = sram_otp_data->ng_sig;
         ng_key_id = sram_otp_data->ng_key_id;
@@ -536,11 +551,9 @@ static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, vwii_sram_otp
 
     for(u8 i = 0; key_names[i]; i++)
     {
-        /* Only display these keys if it's really available in the data we have */
-        /* Otherwise, we'll just skip it */
-        if (i == 7 && ng_key_id == 0) continue;
-        if (i == 8 && ng_sig == NULL) continue;
-        if (i == 9 && (korean_key == NULL || !memcmp(korean_key, null_key, sizeof(null_key)))) continue;
+        /* Only display these keys if they're truly available in the data we have */
+        /* Otherwise, we'll just skip them */
+        if ((i == 7 && !ng_key_id) || (i == 8 && !ng_sig) || (i == 9 && (!korean_key || !memcmp(korean_key, null_key, sizeof(null_key))))) continue;
 
         /* Only display the current additional key if we retrieved it */
         if (i >= 10 && !additional_keys[i - 10].retrieved) continue;
@@ -579,10 +592,10 @@ static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, vwii_sram_otp
                 HexKeyDump(fp, &ng_key_id, sizeof(ng_key_id), !is_txt);
                 break;
             case 8: // NG Signature
-                HexKeyDump(fp, ng_sig, 0x3C, !is_txt);
+                HexKeyDump(fp, ng_sig, MEMBER_SIZE(seeprom_t, ng_sig), !is_txt);
                 break;
             case 9: // Korean Key
-                HexKeyDump(fp, korean_key, 0x10, !is_txt);
+                HexKeyDump(fp, korean_key, MEMBER_SIZE(seeprom_t, korean_key), !is_txt);
                 break;
             default: // Additional keys
                 HexKeyDump(fp, additional_keys[i - 10].key, additional_keys[i - 10].key_size, !is_txt);
@@ -595,7 +608,7 @@ static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, vwii_sram_otp
     }
 }
 
-int XyzzyGetKeys(bool vWii)
+int XyzzyGetKeys(void)
 {
     int ret = 0;
     FILE *fp = NULL;
@@ -603,10 +616,10 @@ int XyzzyGetKeys(bool vWii)
 
     otp_t *otp_data = NULL;
     seeprom_t *seeprom_data = NULL;
+    vwii_sram_otp_t *sram_otp = NULL;
     bootmii_keys_bin_t *bootmii_keys = NULL;
-    vwii_sram_otp *sram_otp = NULL;
     u8 *devcert = NULL, *boot0 = NULL;
-    int boot0_size = vWii ? BOOT0_WIIU_SIZE : BOOT0_SIZE;
+    u16 boot0_size = (!g_isvWii ? BOOT0_RVL_SIZE : BOOT0_WUP_SIZE);
 
     ret = SelectStorageDevice();
 
@@ -639,7 +652,7 @@ int XyzzyGetKeys(bool vWii)
         goto out;
     }
 
-    if (!vWii)
+    if (!g_isvWii)
     {
         /* Access to the SEEPROM will be disabled in we're running under vWii */
         if (!FillSEEPROMStruct(&seeprom_data))
@@ -695,7 +708,7 @@ int XyzzyGetKeys(bool vWii)
         RetrieveSDKey();
 
         /* Retrieve keys from System Menu binary */
-        RetrieveSystemMenuKeys(vWii);
+        RetrieveSystemMenuKeys();
 
         /* Deinitialize filesystem driver */
         ISFS_Deinitialize();
@@ -724,12 +737,12 @@ int XyzzyGetKeys(bool vWii)
     }
 
     /* Print all keys to stdout */
-    PrintAllKeys(otp_data, seeprom_data, sram_otp, stdout, false);
+    PrintAllKeys(otp_data, seeprom_data, sram_otp, stdout);
 
     if (fp)
     {
         /* Print all keys to output txt */
-        PrintAllKeys(otp_data, seeprom_data, sram_otp, fp, true);
+        PrintAllKeys(otp_data, seeprom_data, sram_otp, fp);
 
         fclose(fp);
         fp = NULL;
@@ -767,7 +780,7 @@ int XyzzyGetKeys(bool vWii)
     }
 
     /* Save raw SEEPROM data */
-    if (!vWii)
+    if (!g_isvWii)
     {
         sprintf(path, "%s:/seeprom.bin", StorageDeviceMountName());
         fp = fopen(path, "wb");
@@ -819,6 +832,8 @@ out:
     if (devcert) free(devcert);
 
     if (bootmii_keys) free(bootmii_keys);
+
+    if (sram_otp) free(sram_otp);
 
     if (seeprom_data) free(seeprom_data);
 

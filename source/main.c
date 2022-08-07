@@ -5,9 +5,11 @@
 
 #include "tools.h"
 
+bool g_isvWii = false;
+
 extern void __exception_setreload(int t);
 
-int XyzzyGetKeys(bool vWii);
+int XyzzyGetKeys(void);
 
 int main(int argc, char **argv)
 {
@@ -18,7 +20,7 @@ int main(int argc, char **argv)
     InitConsole();
     InitPads();
 
-    bool vWii = IsWiiU();
+    g_isvWii = IsWiiU();
 
     PrintHeadline();
 
@@ -30,7 +32,7 @@ int main(int argc, char **argv)
         ret = IosPatch_RUNTIME(true, false, false, false);
         if (ret > 0)
         {
-            ret = XyzzyGetKeys(vWii);
+            ret = XyzzyGetKeys();
             if (ret != -2) printf("\nPress any button to exit.");
         } else {
             printf("Failed to apply runtime IOS patches! Press any button to exit.");

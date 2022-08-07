@@ -6,19 +6,23 @@
 #include <malloc.h>
 #include <stdio.h>
 
-#define VERSION             "1.3.2"
+#define VERSION                     "1.3.2"
 
-//#define IsWiiU()          (((*(vu32*)0xCD8005A0) >> 16) == 0xCAFE)
-#define ResetScreen()       printf("\x1b[2J")
+//#define IsWiiU()                  (((*(vu32*)0xCD8005A0) >> 16) == 0xCAFE)
+#define ResetScreen()               printf("\x1b[2J")
 
-#define TITLE_UPPER(x)      ((u32)((x) >> 32))
-#define TITLE_LOWER(x)      ((u32)(x))
-#define TITLE_ID(x, y)      (((u64)(x) << 32) | (y))
+#define TITLE_UPPER(x)              ((u32)((x) >> 32))
+#define TITLE_LOWER(x)              ((u32)(x))
+#define TITLE_ID(x, y)              (((u64)(x) << 32) | (y))
 
-#define ALIGN_UP(x, y)      (((x) + ((y) - 1)) & ~((y) - 1))
-#define ALIGN_DOWN(x, y)    ((x) & ~((y) - 1))
+#define ALIGN_UP(x, y)              (((x) + ((y) - 1)) & ~((y) - 1))
+#define ALIGN_DOWN(x, y)            ((x) & ~((y) - 1))
 
-#define MAX_ELEMENTS(x)     (sizeof((x)) / sizeof((x)[0]))
+#define MAX_ELEMENTS(x)             (sizeof((x)) / sizeof((x)[0]))
+
+#define MEMBER_SIZE(type, member)   sizeof(((type*)NULL)->member)
+
+extern bool g_isvWii;
 
 bool IsWiiU(void);
 
@@ -32,10 +36,10 @@ void PrintHeadline();
 
 void UnmountStorageDevice(void);
 int SelectStorageDevice(void);
-char *StorageDeviceString(void);
-char *StorageDeviceMountName(void);
+const char *StorageDeviceString(void);
+const char *StorageDeviceMountName(void);
 
-void HexKeyDump(FILE *fp, void *d, size_t len, bool add_spaces);
+void HexKeyDump(FILE *fp, const void *d, size_t len, bool add_spaces);
 
 signed_blob *GetSignedTMDFromTitle(u64 title_id, u32 *out_size);
 

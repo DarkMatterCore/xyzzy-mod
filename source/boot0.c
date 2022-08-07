@@ -17,7 +17,9 @@
 
 u16 boot0_read(void *dst, u16 offset, u16 size)
 {
-    if (!dst || offset >= BOOT0_WIIU_SIZE || !size || (offset + size) > BOOT0_WIIU_SIZE) return 0;
+    u16 boot0_size = (!g_isvWii ? BOOT0_RVL_SIZE : BOOT0_WUP_SIZE);
+
+    if (!dst || offset >= boot0_size || !size || (offset + size) > boot0_size) return 0;
 
     u8 *ptr = (u8*)dst;
     u8 val[BOOT0_BLK_SIZE] = {0};

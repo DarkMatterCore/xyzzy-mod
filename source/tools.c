@@ -324,9 +324,9 @@ int SelectStorageDevice(void)
     return ret;
 }
 
-char *StorageDeviceString(void)
+const char *StorageDeviceString(void)
 {
-    char *str = NULL;
+    const char *str = NULL;
 
     switch(device_type)
     {
@@ -343,9 +343,9 @@ char *StorageDeviceString(void)
     return str;
 }
 
-char *StorageDeviceMountName(void)
+const char *StorageDeviceMountName(void)
 {
-    char *str = NULL;
+    const char *str = NULL;
 
     switch(device_type)
     {
@@ -362,12 +362,12 @@ char *StorageDeviceMountName(void)
     return str;
 }
 
-void HexKeyDump(FILE *fp, void *d, size_t len, bool add_spaces)
+void HexKeyDump(FILE *fp, const void *d, size_t len, bool add_spaces)
 {
     if (!fp || !d || !len) return;
 
     size_t i;
-    u8 *data = (u8*)d;
+    const u8 *data = (const u8*)d;
 
     for(i = 0; i < len; i++)
     {
@@ -443,7 +443,7 @@ void *ReadFileFromFlashFileSystem(const char *path, u32 *out_size)
     u8 *buf = NULL;
     bool success = false;
 
-    snprintf(isfs_file_path, ISFS_MAXPATH, path);
+    snprintf(isfs_file_path, ISFS_MAXPATH, "%s", path);
 
     isfs_fd = ISFS_Open(isfs_file_path, ISFS_OPEN_READ);
     if (isfs_fd < 0)
@@ -499,7 +499,7 @@ bool CheckIfFlashFileSystemFileExists(const char *path)
 {
     if (!path || !strlen(path)) return NULL;
 
-    snprintf(isfs_file_path, ISFS_MAXPATH, path);
+    snprintf(isfs_file_path, ISFS_MAXPATH, "%s", path);
 
     isfs_fd = ISFS_Open(isfs_file_path, ISFS_OPEN_READ);
     if (isfs_fd < 0) return false;
