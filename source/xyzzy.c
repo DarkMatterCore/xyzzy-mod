@@ -16,6 +16,7 @@
 #include "tools.h"
 #include "otp.h"
 #include "mini_seeprom.h"
+#include "vwii_sram_otp.h"
 #include "sha1.h"
 #include "aes.h"
 #include "boot0.h"
@@ -509,7 +510,7 @@ static void GetMACAddress(void)
     }
 }
 
-static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, FILE *fp, bool is_txt)
+static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, vwii_sram_otp *sram_otp_data, FILE *fp, bool is_txt)
 {
     if (!otp_data || !fp) return;
 
@@ -518,15 +519,28 @@ static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, FILE *fp, boo
 
     /* We'll use this for the Korean common key check */
     u8 null_key[16] = {0};
+    /* We'll use these to fetch the data that may come from multiple sources */
+    u8 *korean_key = NULL;
+    u8 *ng_sig = NULL;
+    u32 ng_key_id = 0;
+
+    if (seeprom_data) {
+        korean_key = seeprom_data->korean_key;
+        ng_sig = seeprom_data->ng_sig;
+        ng_key_id = seeprom_data->ng_key_id;
+    } else if (sram_otp_data) {
+        korean_key = sram_otp_data->korean_key;
+        ng_sig = sram_otp_data->ng_sig;
+        ng_key_id = sram_otp_data->ng_key_id;
+    }
 
     for(u8 i = 0; key_names[i]; i++)
     {
-        /* Do not print SEEPROM keys if its access is disabled */
-        if (!seeprom_data && (i == 7 || i == 8 || i == 9)) continue;
-
-        /* Only display the Korean common key if it's really available in the SEEPROM data */
+        /* Only display these keys if it's really available in the data we have */
         /* Otherwise, we'll just skip it */
-        if (seeprom_data && i == 9 && !memcmp(seeprom_data->korean_key, null_key, sizeof(seeprom_data->korean_key))) continue;
+        if (i == 7 && ng_key_id == 0) continue;
+        if (i == 8 && ng_sig == NULL) continue;
+        if (i == 9 && (korean_key == NULL || !memcmp(korean_key, null_key, sizeof(null_key)))) continue;
 
         /* Only display the current additional key if we retrieved it */
         if (i >= 10 && !additional_keys[i - 10].retrieved) continue;
@@ -562,13 +576,13 @@ static void PrintAllKeys(otp_t *otp_data, seeprom_t *seeprom_data, FILE *fp, boo
                 HexKeyDump(fp, otp_data->rng_key, sizeof(otp_data->rng_key), !is_txt);
                 break;
             case 7: // NG Key ID
-                HexKeyDump(fp, &(seeprom_data->ng_key_id), sizeof(seeprom_data->ng_key_id), !is_txt);
+                HexKeyDump(fp, &ng_key_id, sizeof(ng_key_id), !is_txt);
                 break;
             case 8: // NG Signature
-                HexKeyDump(fp, seeprom_data->ng_sig, sizeof(seeprom_data->ng_sig), !is_txt);
+                HexKeyDump(fp, ng_sig, 0x3C, !is_txt);
                 break;
             case 9: // Korean Key
-                HexKeyDump(fp, seeprom_data->korean_key, sizeof(seeprom_data->korean_key), !is_txt);
+                HexKeyDump(fp, korean_key, 0x10, !is_txt);
                 break;
             default: // Additional keys
                 HexKeyDump(fp, additional_keys[i - 10].key, additional_keys[i - 10].key_size, !is_txt);
@@ -590,7 +604,9 @@ int XyzzyGetKeys(bool vWii)
     otp_t *otp_data = NULL;
     seeprom_t *seeprom_data = NULL;
     bootmii_keys_bin_t *bootmii_keys = NULL;
+    vwii_sram_otp *sram_otp = NULL;
     u8 *devcert = NULL, *boot0 = NULL;
+    int boot0_size = vWii ? BOOT0_WIIU_SIZE : BOOT0_SIZE;
 
     ret = SelectStorageDevice();
 
@@ -639,21 +655,36 @@ int XyzzyGetKeys(bool vWii)
             sleep(2);
             goto out;
         }
-
-        /* Get boot0 dump */
-        boot0 = memalign(32, BOOT0_SIZE);
-        if (boot0)
+    } else {
+        /* Under vWii, many once-SEEPROM values are fetched from OTP by c2w and stored in the end of IOS SRAM. */
+        sram_otp = memalign(32, SRAM_OTP_SIZE);
+        if (sram_otp)
         {
-            u16 rd = boot0_read(boot0, 0, BOOT0_SIZE);
-            if (rd != BOOT0_SIZE)
+            u16 rd = vwii_sram_otp_read(sram_otp, 0, SRAM_OTP_SIZE);
+            if (rd != SRAM_OTP_SIZE)
             {
-                free(boot0);
-                boot0 = NULL;
-                printf("boot0_read failed! (%u).\n\n", rd);
+                free(sram_otp);
+                sram_otp = NULL;
+                printf("vwii_sram_otp_read failed! (%u).\n\n", rd);
             }
         } else {
-            printf("Error allocating memory for boot0 buffer.\n\n");
+            printf("Error allocating memory for vWii SRAM OTP buffer.\n\n");
         }
+    }
+
+    /* Get boot0 dump */
+    boot0 = memalign(32, boot0_size);
+    if (boot0)
+    {
+        u16 rd = boot0_read(boot0, 0, boot0_size);
+        if (rd != boot0_size)
+        {
+            free(boot0);
+            boot0 = NULL;
+            printf("boot0_read failed! (%u).\n\n", rd);
+        }
+    } else {
+        printf("Error allocating memory for boot0 buffer.\n\n");
     }
 
     /* Initialize filesystem driver */
@@ -693,12 +724,12 @@ int XyzzyGetKeys(bool vWii)
     }
 
     /* Print all keys to stdout */
-    PrintAllKeys(otp_data, seeprom_data, stdout, false);
+    PrintAllKeys(otp_data, seeprom_data, sram_otp, stdout, false);
 
     if (fp)
     {
         /* Print all keys to output txt */
-        PrintAllKeys(otp_data, seeprom_data, fp, true);
+        PrintAllKeys(otp_data, seeprom_data, sram_otp, fp, true);
 
         fclose(fp);
         fp = NULL;
@@ -763,22 +794,22 @@ int XyzzyGetKeys(bool vWii)
             printf("\n\t- Sorry, not writing BootMii keys.bin data to %s.\n", StorageDeviceString());
             sleep(2);
         }
+    }
 
-        if (boot0)
+    if (boot0)
+    {
+        /* Save raw boot0.bin */
+        sprintf(path, "%s:/boot0.bin", StorageDeviceMountName());
+        fp = fopen(path, "wb");
+        if (fp)
         {
-            /* Save raw boot0.bin */
-            sprintf(path, "%s:/boot0.bin", StorageDeviceMountName());
-            fp = fopen(path, "wb");
-            if (fp)
-            {
-                fwrite(boot0, 1, BOOT0_SIZE, fp);
-                fclose(fp);
-                fp = NULL;
-            } else {
-                printf("\n\t- Unable to open device.cert for writing.");
-                printf("\n\t- Sorry, not writing raw boot0.bin to %s.\n", StorageDeviceString());
-                sleep(2);
-            }
+            fwrite(boot0, 1, boot0_size, fp);
+            fclose(fp);
+            fp = NULL;
+        } else {
+            printf("\n\t- Unable to open boot0.bin for writing.");
+            printf("\n\t- Sorry, not writing raw boot0.bin to %s.\n", StorageDeviceString());
+            sleep(2);
         }
     }
 
