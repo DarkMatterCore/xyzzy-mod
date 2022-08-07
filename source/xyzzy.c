@@ -20,6 +20,9 @@
 #include "sha1.h"
 #include "aes.h"
 #include "boot0.h"
+#include "xxhash.h"
+
+#define ALIGN(x) __attribute__((aligned(x)))
 
 #define SYSTEM_MENU_TID     (u64)0x0000000100000002
 
@@ -44,6 +47,7 @@ typedef struct {
 typedef struct {
     u8 key[64];
     u32 key_size;
+    u32 xxhash;
     u8 hash[20];
     bool retrieved;
 } additional_keyinfo_t;
@@ -67,8 +71,8 @@ typedef struct {
     u8 padding_2[0x3C];
 } ppc_ancast_image_header_t;
 
-static const u8 vwii_ancast_key[0x10] = { 0x2E, 0xFE, 0x8A, 0xBC, 0xED, 0xBB, 0x7B, 0xAA, 0xE3, 0xC0, 0xED, 0x92, 0xFA, 0x29, 0xF8, 0x66 };
-static const u8 vwii_ancast_iv[0x10]  = { 0x59, 0x6D, 0x5A, 0x9A, 0xD7, 0x05, 0xF9, 0x4F, 0xE1, 0x58, 0x02, 0x6F, 0xEA, 0xA7, 0xB8, 0x87 };
+static const u8 ALIGN(16) vwii_ancast_key[0x10] = { 0x2E, 0xFE, 0x8A, 0xBC, 0xED, 0xBB, 0x7B, 0xAA, 0xE3, 0xC0, 0xED, 0x92, 0xFA, 0x29, 0xF8, 0x66 };
+static const u8 ALIGN(16) vwii_ancast_iv[0x10]  = { 0x59, 0x6D, 0x5A, 0x9A, 0xD7, 0x05, 0xF9, 0x4F, 0xE1, 0x58, 0x02, 0x6F, 0xEA, 0xA7, 0xB8, 0x87 };
 
 static u8 otp_ptr[OTP_SIZE] = {0};
 static u8 seeprom_ptr[SEEPROM_SIZE] = {0};
@@ -79,6 +83,7 @@ static additional_keyinfo_t additional_keys[] = {
         .key = {0},
         .key_size = 16,
         .hash = { 0x10, 0x37, 0xD8, 0x80, 0x10, 0x2F, 0xF0, 0x21, 0xC2, 0x2B, 0xA8, 0xF5, 0xDF, 0x53, 0xD7, 0x98, 0xCF, 0x44, 0xDD, 0x0B },
+        .xxhash = 0xF655F81B,
         .retrieved = false
     },
     {
@@ -86,6 +91,7 @@ static additional_keyinfo_t additional_keys[] = {
         .key = {0},
         .key_size = 16,
         .hash = { 0x25, 0xAE, 0xEF, 0x2E, 0x60, 0x1E, 0xDE, 0x3E, 0x16, 0x17, 0x54, 0x3B, 0xEB, 0x2E, 0xDE, 0xB0, 0x8A, 0xF8, 0x7D, 0xA8 },
+        .xxhash = 0xBBD8F75D,
         .retrieved = false
     },
     {
@@ -93,6 +99,7 @@ static additional_keyinfo_t additional_keys[] = {
         .key = {0},
         .key_size = 16,
         .hash = { 0x3D, 0xAB, 0xA9, 0xEF, 0x67, 0xCA, 0x94, 0xBF, 0x08, 0x28, 0xEC, 0x04, 0x39, 0x4A, 0x53, 0x13, 0x4D, 0x33, 0x1C, 0x1F },
+        .xxhash = 0xEE88846F,
         .retrieved = false
     },
     {
@@ -100,6 +107,7 @@ static additional_keyinfo_t additional_keys[] = {
         .key = {0},
         .key_size = 6,
         .hash = {0},
+        .xxhash = 0,
         .retrieved = false
     }
 };
@@ -283,101 +291,23 @@ static bool FillBootMiiKeysStruct(otp_t *otp_data, seeprom_t *seeprom_data, boot
 
 static void RetrieveSDKey(void)
 {
-    content_map_entry_t *content_map = NULL;
-    u32 content_map_size = 0;
-
-    u32 ios_version = (u32)IOS_GetVersion();
-    u64 ios_tid = TITLE_ID(1, ios_version);
-
-    signed_blob *ios_stmd = NULL;
-    u32 ios_stmd_size = 0;
-
-    tmd *ios_tmd = NULL;
-    tmd_content *ios_content = NULL;
-
-    char content_path[ISFS_MAXPATH] = {0};
-    u8 *ios_content_data = NULL;
-    u32 ios_content_size = 0;
-
+    /* Look for our key within the currently loaded IOS binary */
     sha1 hash = {0};
 
-    /* Retrieve shared.map contents */
-    content_map = (content_map_entry_t*)ReadFileFromFlashFileSystem("/shared1/content.map", &content_map_size);
-    if (!content_map)
+    for(int j = 0x93A79800; j < 0x93A7A000; j += 4)
     {
-        printf("Failed to retrieve \"%s\" contents!\n\n", content_path);
-        return;
-    }
+        if (XXH32((u8*)j, additional_keys[0].key_size, 0) != additional_keys[0].xxhash) continue;
 
-    if ((content_map_size % sizeof(content_map_entry_t)) != 0)
-    {
-        printf("Invalid \"%s\" size!\n\n", content_path);
-        goto out;
-    }
-
-    /* Calculate content.map entry count */
-    content_map_size /= sizeof(content_map_entry_t);
-
-    /* Get IOS TMD */
-    ios_stmd = GetSignedTMDFromTitle(ios_tid, &ios_stmd_size);
-    if (!ios_stmd)
-    {
-        printf("Error retrieving IOS%u TMD!\n\n", ios_version);
-        goto out;
-    }
-
-    ios_tmd = GetTMDFromSignedBlob(ios_stmd);
-
-    /* Loop through all contents */
-    for(u16 i = 0; i < ios_tmd->num_contents; i++)
-    {
-        u32 j = 0;
-        ios_content = &(ios_tmd->contents[i]);
-
-        /* Only process shared contents */
-        if (ios_content->type != 0x8001) continue;
-
-        /* Look for this content's hash in the content.map data */
-        for(j = 0; j < content_map_size; j++)
+        if (SHA1((u8*)j, additional_keys[0].key_size, hash) != shaSuccess) continue;
+ 
+        if (!memcmp(hash, additional_keys[0].hash, 20))
         {
-            if (!memcmp(ios_content->hash, content_map[j].content_hash, 20)) break;
+            //printf("Found SD Key at 0x%X\n\n");
+            memcpy(additional_keys[0].key, (u8*)j, additional_keys[0].key_size);
+            additional_keys[0].retrieved = true;
+            break;
         }
-
-        /* Continue if we couldn't find this hash */
-        if (j >= content_map_size) continue;
-
-        /* Generate shared content path and read it */
-        sprintf(content_path, "/shared1/%.*s.app", sizeof(content_map[j].content_name), content_map[j].content_name);
-
-        ios_content_data = (u8*)ReadFileFromFlashFileSystem(content_path, &ios_content_size);
-        if (!ios_content_data) continue;
-
-        /* Look for our key */
-        for(j = 0; j < ios_content_size; j += 4)
-        {
-            if (additional_keys[0].key_size > (ios_content_size - j)) break;
-
-            if (SHA1(ios_content_data + j, additional_keys[0].key_size, hash) != shaSuccess) continue;
-
-            if (!memcmp(hash, additional_keys[0].hash, 20))
-            {
-                //printf("Found SD Key in \"%s\" at 0x%X.\n\n", content_path, j);
-                memcpy(additional_keys[0].key, ios_content_data + j, additional_keys[0].key_size);
-                additional_keys[0].retrieved = true;
-                break;
-            }
-        }
-
-        free(ios_content_data);
-        ios_content_data = NULL;
-        ios_content_size = 0;
-
-        if (additional_keys[0].retrieved) break;
     }
-
-out:
-    if (ios_stmd) free(ios_stmd);
-    if (content_map) free(content_map);
 }
 
 static void RetrieveSystemMenuKeys(void)
@@ -481,6 +411,10 @@ static void RetrieveSystemMenuKeys(void)
     for(u32 offset = 0; offset < sysmenu_boot_content_size; offset += 4)
     {
         if ((additional_keys[1].retrieved && additional_keys[2].retrieved) || (sysmenu_boot_content_size - offset) < 16) break;
+
+        u32 xxhash = XXH32(binary_body + offset, additional_keys[1].key_size, 0);
+
+        if (xxhash != additional_keys[1].xxhash && xxhash != additional_keys[2].xxhash) continue;
 
         if (SHA1(binary_body + offset, 16, hash) != shaSuccess) continue;
 
@@ -805,6 +739,19 @@ int XyzzyGetKeys(void)
         } else {
             printf("\n\t- Unable to open bootmii_keys.bin for writing.");
             printf("\n\t- Sorry, not writing BootMii keys.bin data to %s.\n", StorageDeviceString());
+            sleep(2);
+        }
+    } else {
+        sprintf(path, "%s:/sram_otp_vwii.bin", StorageDeviceMountName());
+        fp = fopen(path, "wb");
+        if (fp)
+        {
+            fwrite(sram_otp, 1, sizeof(vwii_sram_otp_t), fp);
+            fclose(fp);
+            fp = NULL;
+        } else {
+            printf("\n\t- Unable to open otp_sram_vwii.bin for writing.");
+            printf("\n\t- Sorry, not writing vWii SRAM OTP data to %s.\n", StorageDeviceString());
             sleep(2);
         }
     }
