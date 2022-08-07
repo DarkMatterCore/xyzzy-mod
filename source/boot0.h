@@ -1,7 +1,8 @@
 #ifndef __BOOT0_H__
 #define __BOOT0_H__
 
-#define BOOT0_SIZE    0x1000
+#define BOOT0_SIZE      0x1000
+#define BOOT0_WIIU_SIZE 0x4000
 
 u16 boot0_read(void *dst, u16 offset, u16 size);
 
