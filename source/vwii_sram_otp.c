@@ -7,7 +7,6 @@
 
 #define SRAM_OTP_MIRR   0xD407F00
 
-#define HW_SRNPROT      0xD800060
 #define SRAM_MASK       0x20
 #define OTP_BLK_SIZE    4
 
