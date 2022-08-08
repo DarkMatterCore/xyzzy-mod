@@ -294,7 +294,7 @@ static void RetrieveSDKey(void)
     /* Look for our key within the currently loaded IOS binary */
     sha1 hash = {0};
 
-    for(int j = 0x93A79800; j < 0x93A7A000; j += 4)
+    for(int j = 0x93640000; j < 0x93F00000; j += 4)
     {
         if (XXH32((u8*)j, additional_keys[0].key_size, 0) != additional_keys[0].xxhash) continue;
 
