@@ -22,8 +22,6 @@
 #include "boot0.h"
 #include "xxhash.h"
 
-#define ALIGN(x) __attribute__((aligned(x)))
-
 #define SYSTEM_MENU_TID     (u64)0x0000000100000002
 
 #define DEVCERT_BUF_SIZE    0x200
@@ -48,7 +46,7 @@ typedef struct {
     u8 key[64];
     u32 key_size;
     u32 xxhash;
-    u8 hash[20];
+    u8 hash[SHA1HashSize];
     bool retrieved;
 } additional_keyinfo_t;
 
@@ -71,8 +69,8 @@ typedef struct {
     u8 padding_2[0x3C];
 } ppc_ancast_image_header_t;
 
-static const u8 ALIGN(16) vwii_ancast_key[0x10] = { 0x2E, 0xFE, 0x8A, 0xBC, 0xED, 0xBB, 0x7B, 0xAA, 0xE3, 0xC0, 0xED, 0x92, 0xFA, 0x29, 0xF8, 0x66 };
-static const u8 ALIGN(16) vwii_ancast_iv[0x10]  = { 0x59, 0x6D, 0x5A, 0x9A, 0xD7, 0x05, 0xF9, 0x4F, 0xE1, 0x58, 0x02, 0x6F, 0xEA, 0xA7, 0xB8, 0x87 };
+static const u8 ATTRIBUTE_ALIGN(16) vwii_ancast_key[0x10] = { 0x2E, 0xFE, 0x8A, 0xBC, 0xED, 0xBB, 0x7B, 0xAA, 0xE3, 0xC0, 0xED, 0x92, 0xFA, 0x29, 0xF8, 0x66 };
+static const u8 ATTRIBUTE_ALIGN(16) vwii_ancast_iv[0x10]  = { 0x59, 0x6D, 0x5A, 0x9A, 0xD7, 0x05, 0xF9, 0x4F, 0xE1, 0x58, 0x02, 0x6F, 0xEA, 0xA7, 0xB8, 0x87 };
 
 static u8 otp_ptr[OTP_SIZE] = {0};
 static u8 seeprom_ptr[SEEPROM_SIZE] = {0};
@@ -82,32 +80,32 @@ static additional_keyinfo_t additional_keys[] = {
         // SD Key. Retrieved from the ES module from the current IOS.
         .key = {0},
         .key_size = 16,
-        .hash = { 0x10, 0x37, 0xD8, 0x80, 0x10, 0x2F, 0xF0, 0x21, 0xC2, 0x2B, 0xA8, 0xF5, 0xDF, 0x53, 0xD7, 0x98, 0xCF, 0x44, 0xDD, 0x0B },
         .xxhash = 0xF655F81B,
+        .hash = { 0x10, 0x37, 0xD8, 0x80, 0x10, 0x2F, 0xF0, 0x21, 0xC2, 0x2B, 0xA8, 0xF5, 0xDF, 0x53, 0xD7, 0x98, 0xCF, 0x44, 0xDD, 0x0B },
         .retrieved = false
     },
     {
         // SD IV. Retrieved from System Menu binary.
         .key = {0},
         .key_size = 16,
-        .hash = { 0x25, 0xAE, 0xEF, 0x2E, 0x60, 0x1E, 0xDE, 0x3E, 0x16, 0x17, 0x54, 0x3B, 0xEB, 0x2E, 0xDE, 0xB0, 0x8A, 0xF8, 0x7D, 0xA8 },
         .xxhash = 0xBBD8F75D,
+        .hash = { 0x25, 0xAE, 0xEF, 0x2E, 0x60, 0x1E, 0xDE, 0x3E, 0x16, 0x17, 0x54, 0x3B, 0xEB, 0x2E, 0xDE, 0xB0, 0x8A, 0xF8, 0x7D, 0xA8 },
         .retrieved = false
     },
     {
         // MD5 Blanker. Retrieved from System Menu binary.
         .key = {0},
         .key_size = 16,
-        .hash = { 0x3D, 0xAB, 0xA9, 0xEF, 0x67, 0xCA, 0x94, 0xBF, 0x08, 0x28, 0xEC, 0x04, 0x39, 0x4A, 0x53, 0x13, 0x4D, 0x33, 0x1C, 0x1F },
         .xxhash = 0xEE88846F,
+        .hash = { 0x3D, 0xAB, 0xA9, 0xEF, 0x67, 0xCA, 0x94, 0xBF, 0x08, 0x28, 0xEC, 0x04, 0x39, 0x4A, 0x53, 0x13, 0x4D, 0x33, 0x1C, 0x1F },
         .retrieved = false
     },
     {
         // MAC Address. Retrieved from /dev/net virtual device. Console specific so this isn't hashed. Used to generate custom savedata.
         .key = {0},
         .key_size = 6,
-        .hash = {0},
         .xxhash = 0,
+        .hash = {0},
         .retrieved = false
     }
 };
@@ -291,22 +289,25 @@ static bool FillBootMiiKeysStruct(otp_t *otp_data, seeprom_t *seeprom_data, boot
 
 static void RetrieveSDKey(void)
 {
-    /* Look for our key within the currently loaded IOS binary */
     sha1 hash = {0};
+    additional_keyinfo_t *sd_key = &(additional_keys[0]);
 
-    for(int j = 0x93640000; j < 0x93F00000; j += 4)
+    /* Look for our key within the currently loaded IOS binary */
+    for(u32 addr = MEM2_IOS_LOOKUP_START; addr < MEM2_IOS_LOOKUP_END; addr += 4)
     {
-        if (XXH32((u8*)j, additional_keys[0].key_size, 0) != additional_keys[0].xxhash) continue;
+        /* Bail out if a read operation could exceed our memory extents */
+        if ((addr + sd_key->key_size) > MEM2_IOS_LOOKUP_END) break;
 
-        if (SHA1((u8*)j, additional_keys[0].key_size, hash) != shaSuccess) continue;
- 
-        if (!memcmp(hash, additional_keys[0].hash, 20))
-        {
-            //printf("Found SD Key at 0x%X\n\n");
-            memcpy(additional_keys[0].key, (u8*)j, additional_keys[0].key_size);
-            additional_keys[0].retrieved = true;
-            break;
-        }
+        /* Calculate XXHash checksum over the current chunk */
+        /* Since the collision potential in XXHash is considerably higher, we'll use software-based SHA1 calculation as a failsafe if we find a XXHash match */
+        /* We will only proceed if both hashes match */
+        u8 *ptr = (u8*)addr;
+        if (XXH32(ptr, sd_key->key_size, 0) != sd_key->xxhash || SHA1(ptr, sd_key->key_size, hash) != shaSuccess || memcmp(hash, sd_key->hash, SHA1HashSize) != 0) continue;
+
+        //printf("Found SD Key at 0x%X\n\n", addr);
+        memcpy(sd_key->key, ptr, sd_key->key_size);
+        sd_key->retrieved = true;
+        break;
     }
 }
 
@@ -390,7 +391,7 @@ static void RetrieveSystemMenuKeys(void)
         }
 
         /* Compare hashes */
-        if (memcmp(hash, ancast_image_header->body_hash, 20) != 0)
+        if (memcmp(hash, ancast_image_header->body_hash, SHA1HashSize) != 0)
         {
             printf("Encrypted vWii System Menu ancast image body SHA-1 hash mismatch!\n\n");
             goto out;
@@ -410,21 +411,22 @@ static void RetrieveSystemMenuKeys(void)
     /* Retrieve keys */
     for(u32 offset = 0; offset < sysmenu_boot_content_size; offset += 4)
     {
+        /* Bail out if we have retrieved both keys, or if a read operation could exceed our buffer extents */
         if ((additional_keys[1].retrieved && additional_keys[2].retrieved) || (sysmenu_boot_content_size - offset) < 16) break;
 
-        u32 xxhash = XXH32(binary_body + offset, additional_keys[1].key_size, 0);
+        /* Calculate XXHash checksum over the current chunk */
+        /* Since the collision potential in XXHash is considerably higher, we'll use software-based SHA1 calculation as a failsafe if we find a XXHash match */
+        u32 xxhash = XXH32(binary_body + offset, 16, 0);
+        if ((xxhash != additional_keys[1].xxhash && xxhash != additional_keys[2].xxhash) || SHA1(binary_body + offset, 16, hash) != shaSuccess) continue;
 
-        if (xxhash != additional_keys[1].xxhash && xxhash != additional_keys[2].xxhash) continue;
-
-        if (SHA1(binary_body + offset, 16, hash) != shaSuccess) continue;
-
+        /* Determine additional key index based on the calculated SHA1 checksum */
         u8 idx = 0;
 
-        if (!additional_keys[1].retrieved && !memcmp(hash, additional_keys[1].hash, 20))
+        if (!additional_keys[1].retrieved && !memcmp(hash, additional_keys[1].hash, SHA1HashSize))
         {
             idx = 1;
         } else
-        if (!additional_keys[2].retrieved && !memcmp(hash, additional_keys[2].hash, 20))
+        if (!additional_keys[2].retrieved && !memcmp(hash, additional_keys[2].hash, SHA1HashSize))
         {
             idx = 2;
         }

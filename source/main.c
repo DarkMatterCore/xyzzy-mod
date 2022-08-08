@@ -1,4 +1,3 @@
-#include <ogc/machine/processor.h>
 #include <stdlib.h>
 #include <string.h>
 #include <gccore.h>

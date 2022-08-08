@@ -5,6 +5,7 @@
 #include <wiiuse/wpad.h>
 #include <malloc.h>
 #include <stdio.h>
+#include <ogc/machine/processor.h>
 
 #define VERSION                     "1.3.2"
 
@@ -22,9 +23,12 @@
 
 #define MEMBER_SIZE(type, member)   sizeof(((type*)NULL)->member)
 
-#define HW_SRNPROT 0xD800060
-#define HW_AHBPROT 0xD800064
-#define MEM_PROT   0xD8B420A
+#define HW_SRNPROT                  0xD800060
+#define HW_AHBPROT                  0xD800064
+#define MEM_PROT                    0xD8B420A
+
+#define MEM2_IOS_LOOKUP_START       0x93640000
+#define MEM2_IOS_LOOKUP_END         0x93F00000
 
 extern bool g_isvWii;
 
