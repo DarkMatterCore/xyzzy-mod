@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 #include <ogc/machine/processor.h>
 
-#define VERSION                     "1.3.2"
+#define VERSION                     "1.3.3"
 
 //#define IsWiiU()                  (((*(vu32*)0xCD8005A0) >> 16) == 0xCAFE)
 #define ResetScreen()               printf("\x1b[2J")

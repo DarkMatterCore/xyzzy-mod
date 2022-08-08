@@ -5,6 +5,7 @@
 /* were taken from the original Xyzzy by bushing, which evidently served as a start point */
 
 /* Kudos to WiiPower and Arikado for additional init code */
+/* Kudos to InvoxiPlayGames for speeding up the key dumping algorithms */
 
 /* DarkMatterCore - 2020-2022 */
 

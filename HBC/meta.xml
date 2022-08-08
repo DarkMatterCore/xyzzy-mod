@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <app version="1.1">
 	<name>Xyzzy</name>
-	<version>1.3.2</version>
-        <release_date>20220718184500</release_date>
-	<coder>Bushing, DarkMatterCore</coder>
+	<version>1.3.3</version>
+        <release_date>20220808180000</release_date>
+	<coder>Bushing, DarkMatterCore, InvoxiPlayGames</coder>
 	<short_description>Extract your Wii console keys!</short_description>
 	<long_description>Xyzzy is a homebrew application that allows the extraction of the OTP and SEEPROM Encryption Keys.
 
