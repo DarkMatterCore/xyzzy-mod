@@ -7,7 +7,6 @@
 
 #define SRAM_MIRROR     0xD400000
 
-#define HW_SRNPROT      0xD800060
 #define SRAM_MASK       0x20
 
 #define HW_BOOT0        0xD80018C

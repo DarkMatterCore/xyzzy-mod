@@ -22,6 +22,10 @@
 
 #define MEMBER_SIZE(type, member)   sizeof(((type*)NULL)->member)
 
+#define HW_SRNPROT 0xD800060
+#define HW_AHBPROT 0xD800064
+#define MEM_PROT   0xD8B420A
+
 extern bool g_isvWii;
 
 bool IsWiiU(void);
