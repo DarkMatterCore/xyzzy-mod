@@ -1,0 +1,35 @@
+name: Build
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    container:
+      image: docker://devkitpro/devkitppc
+      options: --cpus 2
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Compile
+        run: |
+          make
+
+      - name: Package
+        run: |
+          mkdir apps
+          mkdir apps/xyzzy
+          cp HBC/* apps/xyzzy
+          cp boot.dol apps/xyzzy
+
+      - name: Upload
+        uses: actions/upload-artifact@v2
+        with: 
+          name: modules
+          path: |
+            apps
+            boot.elf
