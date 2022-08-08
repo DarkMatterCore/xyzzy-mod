@@ -5,6 +5,7 @@
 #include <wiiuse/wpad.h>
 #include <malloc.h>
 #include <stdio.h>
+#include <sys/stat.h>
 #include <ogc/machine/processor.h>
 
 #define VERSION                     "1.3.2"

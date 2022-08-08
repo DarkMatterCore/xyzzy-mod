@@ -19,6 +19,9 @@ Other changes include:
     * "otp.bin" (raw OTP memory dump).
     * "seeprom.bin" (raw SEEPROM memory dump) (Wii only).
     * "bootmii_keys.bin" (follows the BootMii keys.bin format) (Wii only).
-    * "boot0.bin" (raw boot0 Mask ROM dump) (Wii only).</long_description>
+    * "vwii_sram_otp.bin" (raw vWii OTP bank 6 dump with Wii U OTP data) (Wii U only).
+    * "boot0.bin" (raw ARM boot0 Mask ROM dump).
+
+Output files are saved to "/xyzzy/{console_id}" on the selected storage device.</long_description>
 	<ahb_access/>
 </app>

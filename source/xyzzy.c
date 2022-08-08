@@ -548,7 +548,8 @@ int XyzzyGetKeys(void)
 {
     int ret = 0;
     FILE *fp = NULL;
-    char path[128] = {0};
+    char ATTRIBUTE_ALIGN(32) path[128] = {0};
+    char *pch = NULL;
 
     otp_t *otp_data = NULL;
     seeprom_t *seeprom_data = NULL;
@@ -558,24 +559,7 @@ int XyzzyGetKeys(void)
     u16 boot0_size = (!g_isvWii ? BOOT0_RVL_SIZE : BOOT0_WUP_SIZE);
 
     ret = SelectStorageDevice();
-
-    if (ret >= 0)
-    {
-        sprintf(path, "%s:/keys.txt", StorageDeviceMountName());
-
-        fp = fopen(path, "w");
-        if (!fp)
-        {
-            printf("\n\t- Unable to open keys.txt for writing.");
-            printf("\n\t- Sorry, not writing keys to %s.", StorageDeviceString());
-            sleep(2);
-        }
-    } else
-    if (ret == -2)
-    {
-        return ret;
-    }
-
+    if (ret == -2) return ret;
     ret = 0;
 
     PrintHeadline();
@@ -621,28 +605,13 @@ int XyzzyGetKeys(void)
         }
     }
 
-    /* Get boot0 dump */
-    boot0 = memalign(32, boot0_size);
-    if (boot0)
-    {
-        u16 rd = boot0_read(boot0, 0, boot0_size);
-        if (rd != boot0_size)
-        {
-            free(boot0);
-            boot0 = NULL;
-            printf("boot0_read failed! (%u).\n\n", rd);
-        }
-    } else {
-        printf("Error allocating memory for boot0 buffer.\n\n");
-    }
+    /* Retrieve SD key from IOS */
+    RetrieveSDKey();
 
     /* Initialize filesystem driver */
     ret = ISFS_Initialize();
     if (ret >= 0)
     {
-        /* Retrieve SD key from IOS */
-        RetrieveSDKey();
-
         /* Retrieve keys from System Menu binary */
         RetrieveSystemMenuKeys();
 
@@ -672,22 +641,52 @@ int XyzzyGetKeys(void)
         printf("Error allocating memory for device certificate buffer.\n\n");
     }
 
+    /* Get boot0 dump */
+    boot0 = memalign(32, boot0_size);
+    if (boot0)
+    {
+        u16 rd = boot0_read(boot0, 0, boot0_size);
+        if (rd != boot0_size)
+        {
+            free(boot0);
+            boot0 = NULL;
+            printf("boot0_read failed! (%u).\n\n", rd);
+        }
+    } else {
+        printf("Error allocating memory for boot0 buffer.\n\n");
+    }
+
     /* Print all keys to stdout */
     PrintAllKeys(otp_data, seeprom_data, sram_otp, stdout);
 
+    /* Create output directory tree */
+    sprintf(path, "%s:/xyzzy", StorageDeviceMountName());
+    mkdir(path, 0777);
+
+    sprintf(path + strlen(path), "/%08x", *((u32*)otp_data->ng_id));
+    mkdir(path, 0777);
+
+    strcat(path, "/");
+    pch = (path + strlen(path));
+
+    /* Print all keys to output txt */
+    sprintf(pch, "keys.txt");
+    fp = fopen(path, "w");
     if (fp)
     {
-        /* Print all keys to output txt */
         PrintAllKeys(otp_data, seeprom_data, sram_otp, fp);
-
         fclose(fp);
         fp = NULL;
+    } else {
+        printf("\t- Unable to open keys.txt for writing.\n");
+        printf("\t- Sorry, not writing keys to %s.\n\n", StorageDeviceString());
+        sleep(2);
     }
 
     if (devcert)
     {
         /* Save raw device.cert */
-        sprintf(path, "%s:/device.cert", StorageDeviceMountName());
+        sprintf(pch, "device.cert");
         fp = fopen(path, "wb");
         if (fp)
         {
@@ -702,7 +701,7 @@ int XyzzyGetKeys(void)
     }
 
     /* Save raw OTP data */
-    sprintf(path, "%s:/otp.bin", StorageDeviceMountName());
+    sprintf(pch, "otp.bin");
     fp = fopen(path, "wb");
     if (fp)
     {
@@ -715,10 +714,10 @@ int XyzzyGetKeys(void)
         sleep(2);
     }
 
-    /* Save raw SEEPROM data */
     if (!g_isvWii)
     {
-        sprintf(path, "%s:/seeprom.bin", StorageDeviceMountName());
+        /* Save raw SEEPROM data */
+        sprintf(pch, "seeprom.bin");
         fp = fopen(path, "wb");
         if (fp)
         {
@@ -731,7 +730,8 @@ int XyzzyGetKeys(void)
             sleep(2);
         }
 
-        sprintf(path, "%s:/bootmii_keys.bin", StorageDeviceMountName());
+        /* Save BootMii keys file */
+        sprintf(pch, "bootmii_keys.bin");
         fp = fopen(path, "wb");
         if (fp)
         {
@@ -744,7 +744,8 @@ int XyzzyGetKeys(void)
             sleep(2);
         }
     } else {
-        sprintf(path, "%s:/sram_otp_vwii.bin", StorageDeviceMountName());
+        /* Save raw OTP bank 6 data from SRAM (vWii) */
+        sprintf(pch, "vwii_sram_otp.bin");
         fp = fopen(path, "wb");
         if (fp)
         {
@@ -761,7 +762,7 @@ int XyzzyGetKeys(void)
     if (boot0)
     {
         /* Save raw boot0.bin */
-        sprintf(path, "%s:/boot0.bin", StorageDeviceMountName());
+        sprintf(pch, "boot0.bin");
         fp = fopen(path, "wb");
         if (fp)
         {
