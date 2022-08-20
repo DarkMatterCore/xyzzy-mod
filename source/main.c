@@ -24,13 +24,20 @@ int main(int argc, char **argv)
     PrintHeadline();
 
     /* HW_AHBPROT check */
-    if (read32(HW_AHBPROT) == 0xFFFFFFFF)
+    if (AHBPROT_DISABLED)
     {
-        /* Make sure SRNPROT and MEM_PROT allow PPC access to SRAM and higher MEM2 */
-        mask32(HW_SRNPROT, 0, 0x8);
-        mask32(MEM_PROT, 0xFFFF0000, 0);
-        ret = XyzzyGetKeys();
-        if (ret != -2) printf("\nPress any button to exit.");
+        /* Disable memory protection */
+        DisableMemoryProtection();
+
+        /* Patch ISFS access permissions */
+        if (PatchNandFsPermissions())
+        {
+            /* Get keys */
+            ret = XyzzyGetKeys();
+            if (ret != -2) printf("\nPress any button to exit.");
+        } else {
+            printf("Failed to patch ISFS access permissions! Press any button to exit.");
+        }
     } else {
         /* HW_AHBPROT flag is enabled */
         printf("The HW_AHBPROT hardware register is not disabled.\n");

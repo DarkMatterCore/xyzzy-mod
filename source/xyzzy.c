@@ -111,8 +111,6 @@ static additional_keyinfo_t additional_keys[] = {
     }
 };
 
-static u32 additional_key_count = (u32)MAX_ELEMENTS(additional_keys);
-
 static const char *priiloader_files[] = {
     "content/title_or.tmd",
     "data/loader.ini",

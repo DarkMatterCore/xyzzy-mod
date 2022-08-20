@@ -28,8 +28,11 @@
 #define HW_AHBPROT                  0xD800064
 #define MEM_PROT                    0xD8B420A
 
-#define MEM2_IOS_LOOKUP_START       0x93640000
-#define MEM2_IOS_LOOKUP_END         0x93F00000
+// Top 12 MiB from MEM2
+#define MEM2_IOS_LOOKUP_START       0x93400000
+#define MEM2_IOS_LOOKUP_END         0x94000000
+
+#define AHBPROT_DISABLED            (read32(HW_AHBPROT) == 0xFFFFFFFF)
 
 extern bool g_isvWii;
 
@@ -42,6 +45,9 @@ void WaitForButtonPress(u32 *out, u32 *outGC);
 
 void InitConsole();
 void PrintHeadline();
+
+void DisableMemoryProtection(void);
+bool PatchNandFsPermissions(void);
 
 void UnmountStorageDevice(void);
 int SelectStorageDevice(void);

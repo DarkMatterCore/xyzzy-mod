@@ -19,6 +19,9 @@ extern DISC_INTERFACE __io_usbstorage;
 static void *xfb = NULL;
 static GXRModeObj *rmode = NULL;
 
+static const u8 ATTRIBUTE_ALIGN(32) g_isfsPermOld[] = { 0x42, 0x8B, 0xD0, 0x01, 0x25, 0x66 };
+static const u8 ATTRIBUTE_ALIGN(32) g_isfsPermPatch[] = { 0x42, 0x8B, 0xE0, 0x01, 0x25, 0x66 };
+
 typedef enum {
     STORAGE_DEVICE_TYPE_NONE = 0,
     STORAGE_DEVICE_TYPE_SD,
@@ -146,6 +149,55 @@ void PrintHeadline(void)
     printf(buf);
 
     printf("\nOriginal code by bushing (RIP). Maintained by DarkMatterCore.\nAdditional code by InvoxiPlayGames.\n\n");
+}
+
+void DisableMemoryProtection(void)
+{
+    /* Make sure SRNPROT allows PPC access to SRAM */
+    mask32(HW_SRNPROT, 0, 0x8);
+
+    /* Enable full hardware access from the PPC */
+    mask32(MEM_PROT, 0xFFFF0000, 0);
+}
+
+static bool ApplyMemoryPatch(const u8 *pattern, u32 pattern_size, const u8 *patch, u32 patch_size, s32 patch_offset, bool patch_all)
+{
+    if (!pattern || !pattern_size || !patch || !patch_size) return false;
+
+    u32 count = 0;
+
+    /* Look for the desired pattern and patch it */
+    for(u32 addr = MEM2_IOS_LOOKUP_START; addr < MEM2_IOS_LOOKUP_END; addr++)
+    {
+        u32 patch_addr = (u32)((s32)addr + patch_offset);
+
+        /* Bail out if a read operation could exceed our memory extents */
+        if ((addr + pattern_size) > MEM2_IOS_LOOKUP_END || (patch_addr + patch_size) > MEM2_IOS_LOOKUP_END) break;
+
+        /* Check if we have found the pattern */
+        if (memcmp((u8*)addr, pattern, pattern_size) != 0) continue;
+
+        /* In order to properly patch the desired pattern, we must tweak both d-cache and L1 i-cache */
+        /* We must guarantee the addresses and sizes are aligned to a 32-byte boundary */
+        void *patch_addr_align = (void*)ALIGN_DOWN(patch_addr, 0x20);
+        u32 patch_size_align = ALIGN_UP(patch_size, 0x20);
+
+        DCInvalidateRange(patch_addr_align, patch_size_align);
+        memcpy((void*)patch_addr, patch, patch_size);
+        DCFlushRange(patch_addr_align, patch_size_align);
+        ICInvalidateRange(patch_addr_align, patch_size_align);
+
+        count++;
+
+        if (!patch_all) break;
+    }
+
+    return (count > 0);
+}
+
+bool PatchNandFsPermissions(void)
+{
+    return ApplyMemoryPatch(g_isfsPermOld, sizeof(g_isfsPermOld), g_isfsPermPatch, sizeof(g_isfsPermPatch), 0, false);
 }
 
 static void SetHighlight(bool highlight)

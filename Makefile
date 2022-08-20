@@ -18,14 +18,14 @@ include $(DEVKITPPC)/wii_rules
 TARGET		:=	boot
 BUILD		:=	build
 SOURCES		:=	source
-DATA		:=	
-INCLUDES	:=	
+DATA		:=
+INCLUDES	:=
 
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
 
-CFLAGS	= -g -O2 -Wall -Wno-unused-variable $(MACHDEP) $(INCLUDE)
+CFLAGS	= -g -Wall -Werror -O2 $(MACHDEP) $(INCLUDE)
 CXXFLAGS	=	$(CFLAGS)
 
 LDFLAGS =	-g $(MACHDEP) -Wl,-Map,$(notdir $@).map
