@@ -1,4 +1,5 @@
 .vscode/
+apps
 build
 output
 *.elf
